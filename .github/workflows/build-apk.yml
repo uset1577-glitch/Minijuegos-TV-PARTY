@@ -47,7 +47,7 @@ jobs:
 
       - name: Add Capacitor Android and apply TV updater
         run: |
-          npm install @capacitor/core @capacitor/cli @capacitor/android
+          npm install @capacitor/core @capacitor/cli @capacitor/android --legacy-peer-deps
           npx cap add android
           mkdir -p android/app/src/main/res/xml
           cp android-tv/file_paths.xml android/app/src/main/res/xml/file_paths.xml
