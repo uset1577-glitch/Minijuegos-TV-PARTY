@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Minijuegos BY CRISS</title>
+<style>
+:root{color-scheme:dark}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:100%;height:100%;background:#05070a;color:#fff;font-family:Arial,sans-serif;overflow:hidden}
+#stage{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;transition:background .2s}
+.c{padding:2vh 4vw;max-width:96vw}
+.big{font-size:12vh;font-weight:bold;text-shadow:0 .4vh 1.2vh rgba(0,0,0,.4)}
+.sub{font-size:4.6vh;margin-top:2vh}
+.hint{font-size:3.2vh;color:rgba(255,255,255,.78);margin-top:4vh}
+.giant{font-size:30vh;font-weight:bold;line-height:1.05}
+.bomb{font-size:26vh;line-height:1.1}
+.row{font-size:5.6vh;margin:1.6vh 0;font-weight:bold}.row small{font-size:3.4vh;color:#fff;opacity:.85}
+.menu{width:92vw;text-align:center}
+.title{font-size:7vh;letter-spacing:.5vh}.title b{color:#93c5fd}
+.subt{font-size:2.8vh;color:#94a3b8;margin:1vh 0 3vh}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:2vh 1.6vw}
+.card{background:#1e293b;border:.6vh solid transparent;border-radius:2vh;padding:1.8vh 1vw}
+.card.sel{border-color:#fff;background:#334155;transform:scale(1.04)}
+.card .e{font-size:7vh}.card .t{font-size:3.4vh;font-weight:bold;margin-top:.4vh}.card .d{font-size:2.1vh;color:#94a3b8;margin-top:.4vh}
+.chips{margin-top:3vh;display:flex;gap:1.4vw;justify-content:center;flex-wrap:wrap}
+.chip{font-size:3vh;font-weight:bold;padding:.8vh 1.6vw;border-radius:5vh}
+.simon{display:grid;grid-template-columns:repeat(3,14vh);grid-template-rows:repeat(3,14vh);gap:1.4vh;justify-content:center;margin-top:3vh}
+.sd{display:flex;align-items:center;justify-content:center;font-size:7vh;border-radius:2vh;color:#fff}
+.sd.up{grid-area:1/2}.sd.left{grid-area:2/1}.sd.right{grid-area:2/3}.sd.down{grid-area:3/2}
+.track{position:relative;width:70vw;height:9vh;background:#334155;border-radius:2vh;margin:6vh auto 2vh}
+.zone{position:absolute;left:46%;width:8%;top:0;bottom:0;background:#22c55e;border-radius:1vh}
+.mk{position:absolute;top:-1.2vh;bottom:-1.2vh;width:1.4vh;background:#fbbf24;transform:translateX(-50%);border-radius:1vh}
+.barw{width:60vw;height:3vh;background:rgba(0,0,0,.35);border-radius:2vh;margin:3vh auto 0;overflow:hidden}.barf{height:100%;width:100%;background:#fff}
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<script>
+const $ = id => document.getElementById(id);
+const COL = ['#ef4444', '#3b82f6', '#16a34a', '#d97706'];
+let np = Math.min(4, Math.max(2, +(localStorage.getItem('mj_np') || 4)));
+const P = [0, 1, 2, 3].map(i => ({ n: 'Jugador ' + (i + 1), pts: 0 }));
+let cur = { key() {} }, gid = 0, inMenu = true, actx = null, ms = 0;
+
+const T = (f, t) => { const g = gid; return setTimeout(() => { if (g === gid) f(); }, t); };
+const I = (f, t) => { const g = gid; const id = setInterval(() => { if (g !== gid) { clearInterval(id); return; } f(); }, t); return id; };
+function show(html, key, bg) { cur = { key: key || (() => {}) }; const s = $('stage'); s.innerHTML = html; s.style.background = bg || ''; }
+function tone(f, d = .15, type = 'square', v = .1) {
+  try {
+    actx = actx || new AudioContext();
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.type = type; o.frequency.value = f; g.gain.value = v; o.connect(g); g.connect(actx.destination);
+    o.start(); o.stop(actx.currentTime + d);
+  } catch (e) {}
+}
+function pass(i, sub, then) {
+  tone(520, .1);
+  show(`<div class="c"><div class="sub">Pásale el control a</div><div class="big">${P[i].n}</div><div class="sub">${sub}</div><div class="hint">Presiona OK cuando lo tengas</div></div>`, k => { if (k === 'ok') then(); }, COL[i]);
+}
+function fin(title, rank, lines, again) {
+  gid++;
+  const pts = [3, 2, 1, 0];
+  rank.forEach((p, r) => { P[p].pts += pts[Math.min(r, 3)]; });
+  tone(523, .15); setTimeout(() => tone(784, .35), 170);
+  show(`<div class="c"><div class="big" style="font-size:9vh">${title}</div>${rank.map((p, r) => `<div class="row" style="color:${COL[p] === '#16a34a' ? '#4ade80' : COL[p] === '#d97706' ? '#fbbf24' : COL[p] === '#3b82f6' ? '#60a5fa' : '#f87171'}">${r + 1}. ${P[p].n} — ${lines[r]} <small>+${pts[Math.min(r, 3)]}</small></div>`).join('')}<div class="hint">OK: menú · ▲: jugar otra vez</div></div>`,
+    k => { if (k === 'ok') menu(); else if (k === 'up') again(); });
+}
+
+/* ---------- 1. Patata caliente ---------- */
+function bomba() {
+  gid++; inMenu = false;
+  let h = 0, tot = 0, t0 = 0, last = 0, alive = false; const b = [0, 0, 0, 0];
+  const draw = () => show(`<div class="c"><div class="bomb">💣</div><div class="big">${P[h].n}</div><div class="sub">Quemadas: ${b[h]} / 3</div><div class="hint">OK: pasar la bomba al siguiente</div></div>`,
+    k => { if (k === 'ok' && alive && Date.now() - last > 200) { last = Date.now(); h = (h + 1) % np; tone(400, .05); draw(); } }, COL[h]);
+  const beat = () => { if (!alive) return; const f = Math.min(1, (Date.now() - t0) / tot); tone(600 + f * 700, .05, 'square', .07); T(beat, Math.max(150, 650 - f * 500)); };
+  const boom = () => {
+    if (!alive) return; alive = false; b[h]++; tone(110, .9, 'sawtooth', .3);
+    const out = b[h] >= 3;
+    show(`<div class="c"><div class="bomb">💥</div><div class="big">¡BOOM!</div><div class="sub">${P[h].n} se quemó (${b[h]}/3)</div><div class="hint">OK: ${out ? 'ver resultados' : 'siguiente ronda'}</div></div>`,
+      k => { if (k === 'ok') { if (out) end(); else round(); } }, '#7f1d1d');
+  };
+  const round = () => { tot = 6000 + Math.random() * 13000; t0 = Date.now(); alive = true; last = Date.now(); draw(); beat(); T(boom, tot); };
+  const end = () => { const rank = [...Array(np).keys()].sort((x, y) => b[x] - b[y]); fin('Patata caliente', rank, rank.map(p => b[p] + ' quemadas'), bomba); };
+  pass(0, 'Empieza la bomba', round);
+}
+
+/* ---------- 2. Reflejos ---------- */
+function reflejos() {
+  gid++; inMenu = false;
+  const R = 3, tot = Array(np).fill(0), q = []; let qi = 0;
+  for (let r = 0; r < R; r++) for (let i = 0; i < np; i++) q.push(i);
+  const next = () => { if (qi >= q.length) return end(); const i = q[qi]; pass(i, 'Ronda ' + (Math.floor(qi / np) + 1) + ' de ' + R + ' · reflejos', () => wait(i)); };
+  const cont = k => { if (k === 'ok') { qi++; next(); } };
+  const wait = i => {
+    let st = 0;
+    const wt = T(() => {
+      st = performance.now(); tone(900, .25);
+      show(`<div class="c"><div class="giant">¡YA!</div></div>`, k => {
+        if (k !== 'ok') return;
+        const t = Math.round(performance.now() - st); tot[i] += t; tone(660, .1);
+        show(`<div class="c"><div class="big">${t} ms</div><div class="sub">${P[i].n}</div><div class="hint">OK: continuar</div></div>`, cont, COL[i]);
+      }, '#16a34a');
+    }, 2000 + Math.random() * 3500);
+    show(`<div class="c"><div class="big">Espera…</div><div class="sub">No presiones hasta ver VERDE</div></div>`, k => {
+      if (k !== 'ok') return;
+      clearTimeout(wt); tot[i] += 1000; tone(150, .4, 'sawtooth');
+      show(`<div class="c"><div class="big">¡Muy pronto!</div><div class="sub">+1000 ms de castigo</div><div class="hint">OK: continuar</div></div>`, cont, '#7f1d1d');
+    }, '#b91c1c');
+  };
+  const end = () => { const rank = [...Array(np).keys()].sort((x, y) => tot[x] - tot[y]); fin('Reflejos', rank, rank.map(p => tot[p] + ' ms en total'), reflejos); };
+  next();
+}
+
+/* ---------- 3. Simón ---------- */
+function simon() {
+  gid++; inMenu = false;
+  const D = ['up', 'right', 'down', 'left'], C = { up: '#22c55e', right: '#ef4444', down: '#f59e0b', left: '#3b82f6' };
+  const F = { up: 523, right: 659, down: 392, left: 330 }, A = { up: '▲', right: '▶', down: '▼', left: '◀' };
+  let seq = [], alive = [...Array(np).keys()], out = [], ti = 0;
+  const pad = lit => '<div class="simon">' + D.map(d => `<div class="sd ${d}" style="background:${C[d]};opacity:${lit === d ? 1 : .22}">${A[d]}</div>`).join('') + '</div>';
+  const draw = (lit, msg, key, bg) => show(`<div class="c"><div class="sub">${msg}</div>${pad(lit)}</div>`, key, bg);
+  const turn = () => { const p = alive[ti % alive.length]; pass(p, seq.length ? 'Memoria: repite y agrega una flecha' : 'Memoria: empieza con una flecha', () => watch(p)); };
+  const watch = p => {
+    let i = 0; const m = P[p].n + ' · mira…';
+    draw(null, m, null, COL[p]);
+    const step = () => {
+      if (i >= seq.length) { T(() => input(p), 300); return; }
+      const d = seq[i++]; draw(d, m, null, COL[p]); tone(F[d], .3);
+      T(() => { draw(null, m, null, COL[p]); T(step, 220); }, 500);
+    };
+    T(step, 500);
+  };
+  const input = p => {
+    let idx = 0;
+    const msg = () => idx < seq.length ? P[p].n + ' · repite (' + idx + '/' + seq.length + ')' : P[p].n + ' · agrega una flecha nueva';
+    const kf = k => {
+      if (!D.includes(k)) return; tone(F[k], .18);
+      if (idx < seq.length) { if (k === seq[idx]) { idx++; draw(k, msg(), kf, COL[p]); } else fail(p); }
+      else { seq.push(k); draw(k, '¡Agregada!', null, COL[p]); T(() => { ti = (alive.indexOf(p) + 1) % alive.length; turn(); }, 700); }
+    };
+    draw(null, msg(), kf, COL[p]);
+  };
+  const fail = p => {
+    tone(110, .7, 'sawtooth', .3); out.push(p); const r = alive.indexOf(p); alive.splice(r, 1); seq = []; ti = r;
+    show(`<div class="c"><div class="big">¡Fallaste!</div><div class="sub">${P[p].n} sale del juego</div><div class="hint">OK: continuar</div></div>`, k => { if (k === 'ok') { if (alive.length <= 1) end(); else turn(); } }, '#7f1d1d');
+  };
+  const end = () => { const rank = [...alive, ...out.slice().reverse()]; fin('Simón', rank, rank.map((p, i) => i === 0 ? 'Ganador' : 'Eliminado'), simon); };
+  turn();
+}
+
+/* ---------- 4. Adivina el número ---------- */
+function adivina() {
+  gid++; inMenu = false;
+  const sec = 1 + Math.floor(Math.random() * 100), diff = Array(np).fill(100);
+  let lo = 1, hi = 100, ti = 0, g = 50;
+  const turn = () => pass(ti, 'Adivina el número del 1 al 100', pick);
+  const pick = () => {
+    const draw = () => show(`<div class="c"><div class="sub">${P[ti].n} · está entre ${lo} y ${hi}</div><div class="giant">${g}</div><div class="hint">▲▼ ±1 · ◀▶ ±10 · OK confirma</div></div>`, k => {
+      if (k === 'up') g = Math.min(100, g + 1); else if (k === 'down') g = Math.max(1, g - 1);
+      else if (k === 'right') g = Math.min(100, g + 10); else if (k === 'left') g = Math.max(1, g - 10);
+      else if (k === 'ok') { check(); return; } else return;
+      tone(300 + g * 4, .04); draw();
+    }, COL[ti]);
+    draw();
+  };
+  const check = () => {
+    diff[ti] = Math.abs(g - sec);
+    if (g === sec) { end(ti); return; }
+    const hint = g < sec ? 'MÁS ALTO ▲' : 'MÁS BAJO ▼';
+    if (g < sec) lo = Math.max(lo, g + 1); else hi = Math.min(hi, g - 1);
+    tone(g < sec ? 700 : 300, .3);
+    show(`<div class="c"><div class="giant" style="font-size:16vh">${g}</div><div class="big">${hint}</div><div class="hint">OK: siguiente jugador</div></div>`, k => { if (k === 'ok') { ti = (ti + 1) % np; g = Math.round((lo + hi) / 2); turn(); } }, COL[ti]);
+  };
+  const end = w => {
+    const rest = [...Array(np).keys()].filter(x => x !== w).sort((x, y) => diff[x] - diff[y]);
+    const rank = [w, ...rest];
+    fin('Adivina el número', rank, rank.map((p, i) => i === 0 ? '¡Acertó el ' + sec + '!' : 'a ' + diff[p] + ' de distancia'), adivina);
+  };
+  turn();
+}
+
+/* ---------- 5. Machaca OK ---------- */
+function machaca() {
+  gid++; inMenu = false;
+  const sc = Array(np).fill(0); let ti = 0;
+  const turn = () => { if (ti >= np) { end(); return; } pass(ti, '¡Machaca OK durante 10 segundos!', () => count(3)); };
+  const count = n => { if (n === 0) { run(); return; } tone(500, .1); show(`<div class="c"><div class="giant">${n}</div></div>`, null, COL[ti]); T(() => count(n - 1), 800); };
+  const run = () => {
+    let c = 0, done = false; const t1 = Date.now() + 10000;
+    show(`<div class="c"><div class="sub">${P[ti].n} · ¡DALE!</div><div class="giant" id="cn">0</div><div class="barw"><div class="barf" id="bf"></div></div></div>`,
+      k => { if (k === 'ok' && !done) { c++; const e = $('cn'); if (e) e.textContent = c; tone(500 + (c % 10) * 40, .03, 'square', .05); } }, COL[ti]);
+    const iv = I(() => {
+      const left = t1 - Date.now(), bf = $('bf'); if (bf) bf.style.width = Math.max(0, left / 100) + '%';
+      if (left <= 0 && !done) {
+        done = true; clearInterval(iv); sc[ti] = c; tone(300, .5);
+        show(`<div class="c"><div class="big">${c} pulsaciones</div><div class="sub">${P[ti].n}</div><div class="hint">OK: continuar</div></div>`, k => { if (k === 'ok') { ti++; turn(); } }, COL[ti]);
+      }
+    }, 50);
+  };
+  const end = () => { const rank = [...Array(np).keys()].sort((x, y) => sc[y] - sc[x]); fin('Machaca OK', rank, rank.map(p => sc[p] + ' pulsaciones'), machaca); };
+  turn();
+}
+
+/* ---------- 6. Puntería ---------- */
+function punteria() {
+  gid++; inMenu = false;
+  const sc = Array(np).fill(0); let ti = 0;
+  const turn = () => { if (ti >= np) { end(); return; } pass(ti, '3 disparos: detén la barra en el centro', () => shot(0)); };
+  const shot = n => {
+    if (n >= 3) { show(`<div class="c"><div class="big">${sc[ti]} puntos</div><div class="sub">${P[ti].n}</div><div class="hint">OK: continuar</div></div>`, k => { if (k === 'ok') { ti++; turn(); } }, COL[ti]); return; }
+    let x = 0, dir = 1, run = true; const v = 1.1 + n * .55;
+    show(`<div class="c"><div class="sub">${P[ti].n} · disparo ${n + 1}/3</div><div class="track"><div class="zone"></div><div class="mk" id="mk"></div></div><div class="hint">OK: detener la barra</div></div>`, k => {
+      if (k !== 'ok' || !run) return;
+      run = false; clearInterval(iv);
+      const pts = Math.max(0, Math.round(100 - Math.abs(x - 50) * 2)); sc[ti] += pts; tone(300 + pts * 6, .25);
+      const m = $('mk'); if (m) m.style.background = '#fff';
+      T(() => { show(`<div class="c"><div class="giant">+${pts}</div></div>`, null, COL[ti]); T(() => shot(n + 1), 900); }, 250);
+    }, COL[ti]);
+    const iv = I(() => { if (!run) return; x += dir * v; if (x >= 100) { x = 100; dir = -1; } if (x <= 0) { x = 0; dir = 1; } const m = $('mk'); if (m) m.style.left = x + '%'; }, 16);
+  };
+  const end = () => { const rank = [...Array(np).keys()].sort((x, y) => sc[y] - sc[x]); fin('Puntería', rank, rank.map(p => sc[p] + ' puntos'), punteria); };
+  turn();
+}
+
+/* ---------- 7. Ruleta de retos ---------- */
+const RETOS = ['Imita a un animal hasta que alguien adivine', 'Cuenta un chiste', 'Baila 10 segundos sin música', 'Habla como robot durante 1 minuto', 'Di un trabalenguas sin equivocarte', 'Haz 10 sentadillas', 'Canta el coro de tu canción favorita', 'Imita a otro jugador', 'Di 5 frutas en 5 segundos', 'Mantén el equilibrio en un pie 15 segundos', 'Cuenta del 20 al 1 sin equivocarte', 'Haz tu mejor cara de sorpresa', 'Cuenta tu mejor anécdota', 'Di tu nombre al revés', 'Haz reír a alguien sin tocarlo', 'Inventa un lema para este grupo', 'Di 3 cosas que te hacen feliz', 'Actúa una película sin hablar', 'Habla 10 segundos sin mover los labios', 'Nombra 5 países en 10 segundos', 'Haz el sonido de 3 animales', 'Camina como un modelo', 'Elige quién hace el siguiente reto', 'Cuenta hasta 30 sin decir el 7', 'Describe tu día usando solo gestos'];
+const GEN = {
+  ej: ['sentadillas', 'saltos', 'abdominales', 'giros', 'aplausos', 'pasos de baile', 'flexiones de brazo'],
+  n: [5, 8, 10, 12, 15],
+  pj: ['un robot', 'un pirata', 'un bebé', 'un presentador de noticias', 'un abuelo', 'un gallo', 'un superhéroe', 'un fantasma', 'un cantante de ópera', 'un mono', 'un chef', 'un astronauta'],
+  ac: ['pidiendo un helado', 'contando hasta 10', 'saludando a todos', 'explicando cómo se hace un sándwich', 'pidiendo perdón', 'dando una noticia', 'hablando por teléfono', 'buscando algo perdido', 'cantando una canción de cuna'],
+  cosa: ['animales', 'frutas', 'colores', 'países', 'ciudades', 'comidas', 'deportes', 'profesiones', 'objetos de la casa', 'películas'],
+  seg: [5, 8, 10, 15],
+  cuerpo: ['en cámara lenta', 'a toda velocidad', 'con los ojos cerrados', 'sin reírte', 'con una mano en la cabeza', 'en un solo pie'],
+  voz: ['sin repetir', 'sin reírte', 'con voz de pato', 'con voz de gigante', 'en cámara lenta', 'con acento extranjero', 'susurrando', 'como si fueras un locutor']
+};
+const pick = a => a[Math.floor(Math.random() * a.length)];
+function genReto() {
+  const t = Math.floor(Math.random() * 4);
+  if (t === 0) return 'Haz ' + pick(GEN.n) + ' ' + pick(GEN.ej) + ' ' + pick(GEN.cuerpo);
+  if (t === 1) return 'Actúa como ' + pick(GEN.pj) + ' ' + pick(GEN.ac);
+  if (t === 2) return 'Nombra ' + pick([3, 4, 5, 6]) + ' ' + pick(GEN.cosa) + ' en ' + pick(GEN.seg) + ' segundos ' + pick(GEN.voz);
+  return 'Cuenta una historia de ' + pick([3, 4, 5]) + ' frases sobre ' + pick(GEN.cosa) + ' ' + pick(GEN.voz);
+}
+let deck = [], lastR = '';
+function nextReto() {
+  let r = '';
+  for (let i = 0; i < 12; i++) {
+    if (Math.random() < .5) { if (!deck.length) deck = RETOS.slice().sort(() => Math.random() - .5); r = deck.pop(); }
+    else r = genReto();
+    if (r !== lastR) break;
+  }
+  lastR = r; return r;
+}
+function ruleta() {
+  gid++; inMenu = false; let last = -1;
+  const go = () => {
+    let ti; do { ti = Math.floor(Math.random() * np); } while (np > 1 && ti === last);
+    last = ti; let n = 0;
+    const iv = I(() => {
+      n++;
+      show(`<div class="c"><div class="sub">Girando…</div><div class="big" style="font-size:7vh;max-width:80vw">${RETOS[Math.floor(Math.random() * RETOS.length)]}</div></div>`, null, COL[n % np]);
+      tone(300 + n * 10, .05);
+      if (n >= 16) {
+        clearInterval(iv); tone(784, .4);
+        show(`<div class="c"><div class="sub">Le toca a</div><div class="big">${P[ti].n}</div><div class="big" style="font-size:6.4vh;margin-top:4vh;max-width:80vw">${nextReto()}</div><div class="hint">OK: otro reto · Atrás: menú</div></div>`, k => { if (k === 'ok') go(); }, COL[ti]);
+      }
+    }, 110);
+  };
+  go();
+}
+
+/* ---------- menú ---------- */
+const ITEMS = [
+  { n: 'Patata caliente', e: '💣', d: 'Pasa la bomba', f: bomba },
+  { n: 'Reflejos', e: '⚡', d: 'El más rápido gana', f: reflejos },
+  { n: 'Simón', e: '🧠', d: 'Repite la secuencia', f: simon },
+  { n: 'Adivina el número', e: '🔢', d: 'Del 1 al 100', f: adivina },
+  { n: 'Machaca OK', e: '👆', d: '10 segundos a tope', f: machaca },
+  { n: 'Puntería', e: '🎯', d: 'Para en el centro', f: punteria },
+  { n: 'Ruleta de retos', e: '🎡', d: 'Retos divertidos', f: ruleta },
+  { n: 'Jugadores', e: '👥', d: 'OK: cambiar (2 a 4)', pl: 1 },
+  { n: 'Reiniciar puntos', e: '🔄', d: 'Todos en cero', rs: 1 }
+];
+function menu() {
+  gid++; inMenu = true;
+  const n = ITEMS.length;
+  const draw = () => show(`<div class="menu"><div class="title">MINIJUEGOS <b>BY CRISS</b></div><div class="subt">Made with CLAUDE · ${np} jugadores · un solo control</div><div class="grid">${ITEMS.map((it, i) => `<div class="card ${i === ms ? 'sel' : ''}"><div class="e">${it.e}</div><div class="t">${it.pl ? 'Jugadores: ' + np : it.n}</div><div class="d">${it.d}</div></div>`).join('')}</div><div class="chips">${P.slice(0, np).map((p, i) => `<span class="chip" style="background:${COL[i]}">${p.n}: ${p.pts}</span>`).join('')}</div></div>`,
+    k => {
+      if (k === 'right') ms = (ms + 1) % n; else if (k === 'left') ms = (ms + n - 1) % n;
+      else if (k === 'down') ms = (ms + 3) % n; else if (k === 'up') ms = (ms + n - 3) % n;
+      else if (k === 'ok') {
+        const it = ITEMS[ms];
+        if (it.f) { it.f(); return; }
+        if (it.pl) { np = np >= 4 ? 2 : np + 1; try { localStorage.setItem('mj_np', np); } catch (e) {} }
+        if (it.rs) P.forEach(p => p.pts = 0);
+      } else return;
+      tone(380, .04); draw();
+    });
+  draw();
+}
+
+document.addEventListener('keydown', e => {
+  const M = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right', Enter: 'ok', ' ': 'ok', Escape: 'back', Backspace: 'back', GoBack: 'back' };
+  const k = M[e.key]; if (!k) return;
+  e.preventDefault();
+  if (k === 'ok' && e.repeat) return;
+  if (k === 'back') { window.__back(); return; }
+  cur.key(k);
+});
+window.__back = () => { if (inMenu) return false; menu(); return true; };
+menu();
+</script>
+</body>
+</html>

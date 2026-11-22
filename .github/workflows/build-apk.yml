@@ -1,0 +1,110 @@
+name: Build Android TV APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+
+permissions:
+  contents: write
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Compute release version
+        id: ver
+        run: |
+          CODE=$((100 + GITHUB_RUN_NUMBER))
+          NAME="1.0.${GITHUB_RUN_NUMBER}"
+          echo "version_code=${CODE}" >> "$GITHUB_OUTPUT"
+          echo "version_name=${NAME}" >> "$GITHUB_OUTPUT"
+          echo "manifest_url=https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/version.json" >> "$GITHUB_OUTPUT"
+          echo "apk_url=https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/MandoPartyTV.apk" >> "$GITHUB_OUTPUT"
+
+      - name: Install dependencies and build web bundle
+        env:
+          VITE_APP_VERSION: ${{ steps.ver.outputs.version_name }}
+          VITE_APP_VERSION_CODE: ${{ steps.ver.outputs.version_code }}
+          VITE_UPDATE_MANIFEST_URL: ${{ steps.ver.outputs.manifest_url }}
+        run: |
+          npm install
+          npm run build
+
+      - name: Add Capacitor Android and apply TV updater
+        run: |
+          npm install @capacitor/core @capacitor/cli @capacitor/android
+          npx cap add android
+          mkdir -p android/app/src/main/res/xml
+          cp android-tv/file_paths.xml android/app/src/main/res/xml/file_paths.xml
+          cp android-tv/AndroidManifest.xml android/app/src/main/AndroidManifest.xml
+          mkdir -p android/app/src/main/java/com/mandoparty/tv
+          rm -f android/app/src/main/java/com/mandoparty/tv/MainActivity.kt
+          cp android-tv/ApkUpdaterPlugin.java android/app/src/main/java/com/mandoparty/tv/ApkUpdaterPlugin.java
+          cp android-tv/MainActivity.java android/app/src/main/java/com/mandoparty/tv/MainActivity.java
+          sed -i "s/versionCode [0-9]\+/versionCode ${{ steps.ver.outputs.version_code }}/" android/app/build.gradle
+          sed -i "s/versionName \"[^\"]*\"/versionName \"${{ steps.ver.outputs.version_name }}\"/" android/app/build.gradle
+          npx cap sync android
+
+      - name: Build Android TV APK
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASS }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASS: ${{ secrets.ANDROID_KEY_PASS }}
+        run: |
+          mkdir -p release-out
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > android/app/release-key.jks
+            cd android && ./gradlew assembleRelease \
+              -Pandroid.injected.signing.store.file="$(pwd)/app/release-key.jks" \
+              -Pandroid.injected.signing.store.password="$ANDROID_KEYSTORE_PASS" \
+              -Pandroid.injected.signing.key.alias="$ANDROID_KEY_ALIAS" \
+              -Pandroid.injected.signing.key.password="$ANDROID_KEY_PASS"
+            cd ..
+            cp android/app/build/outputs/apk/release/app-release.apk release-out/MandoPartyTV.apk
+          else
+            cd android && ./gradlew assembleDebug
+            cd ..
+            cp android/app/build/outputs/apk/debug/app-debug.apk release-out/MandoPartyTV.apk
+          fi
+
+          cat <<EOF > release-out/version.json
+          {
+            "versionCode": ${{ steps.ver.outputs.version_code }},
+            "versionName": "${{ steps.ver.outputs.version_name }}",
+            "apkUrl": "${{ steps.ver.outputs.apk_url }}",
+            "notes": "Nueva actualizacion de Mando Party TV lista para instalar."
+          }
+          EOF
+
+      - name: Publish GitHub Release (OTA update feed)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.ver.outputs.version_name }}
+          name: Mando Party TV v${{ steps.ver.outputs.version_name }}
+          body: "Actualizacion automatica v${{ steps.ver.outputs.version_name }} para Android TV."
+          make_latest: true
+          files: |
+            release-out/MandoPartyTV.apk
+            release-out/version.json
+
+      - name: Upload Android TV APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MandoPartyTV-apk
+          path: release-out/MandoPartyTV.apk

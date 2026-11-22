@@ -1,0 +1,6 @@
+{
+  "name": "Mando Party TV",
+  "description": "Minijuegos de fiesta para 1 a 6 jugadores en Google TV y Android TV con un solo control remoto y retos generados con IA.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
