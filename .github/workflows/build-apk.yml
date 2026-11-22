@@ -42,7 +42,7 @@ jobs:
           VITE_APP_VERSION_CODE: ${{ steps.ver.outputs.version_code }}
           VITE_UPDATE_MANIFEST_URL: ${{ steps.ver.outputs.manifest_url }}
         run: |
-          npm install
+          npm install --legacy-peer-deps
           npm run build
 
       - name: Add Capacitor Android and apply TV updater
