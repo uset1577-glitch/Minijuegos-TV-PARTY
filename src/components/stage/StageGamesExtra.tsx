@@ -25,9 +25,13 @@ export function FnafOficinaStage({
   onFinish,
   registerKeyHandler,
   setBg,
+  difficulty = 'normal',
 }: StageGameProps) {
   const np = players.length;
-  const TOTAL_TICKS = 84; // 84 * 210ms = ~17.6s
+  const TOTAL_TICKS = difficulty === 'easy' ? 70 : difficulty === 'hard' ? 96 : 84;
+  const drainMult = difficulty === 'easy' ? 0.65 : difficulty === 'hard' ? 1.28 : 1.0;
+  const dualFromTick = difficulty === 'easy' ? 52 : difficulty === 'hard' ? 6 : 20;
+  const aggBase = difficulty === 'easy' ? 0.32 : difficulty === 'hard' ? 0.56 : 0.42;
   const [pi, setPi] = useState(0);
   const [phase, setPhase] = useState<'PASS' | 'PLAY' | 'TURN_END'>('PASS');
   const [hour, setHour] = useState(0); // 0 = 12 AM .. 6 = 6 AM
@@ -92,7 +96,7 @@ export function FnafOficinaStage({
       });
       setPhase('TURN_END');
     },
-    [pi],
+    [pi, TOTAL_TICKS],
   );
 
   const startShift = useCallback(() => {
@@ -128,16 +132,16 @@ export function FnafOficinaStage({
       const curHour = Math.min(6, Math.floor((nextTick * 6) / TOTAL_TICKS));
       setHour(curHour);
 
-      // Consumo exigente (puertas dobles + luz agotan rápido)
       const usage =
         1 + (leftDoorRef.current ? 1 : 0) + (rightDoorRef.current ? 1 : 0) + (lightRef.current ? 1 : 0);
-      const drain = usage === 1 ? 0.68 : usage === 2 ? 1.72 : usage === 3 ? 2.85 : 4.1;
+      const baseDrain = usage === 1 ? 0.68 : usage === 2 ? 1.72 : usage === 3 ? 2.85 : 4.1;
+      const drain = baseDrain * drainMult;
       let extraDrain = 0;
 
       // Desde las 3 AM Freddy da risas y provoca picos de consumo si tienes luz encendida
       if (nextTick >= 42 && nextTick % 16 === 0 && Math.random() < 0.65) {
         setFreddySurge(true);
-        extraDrain = lightRef.current ? 3.5 : 1.5;
+        extraDrain = (lightRef.current ? 3.5 : 1.5) * drainMult;
         setStatusMsg('🐻 Risa de Freddy… ¡apaga la luz o te drena batería!');
         tone(145, 0.14, 'sawtooth', 0.09);
       } else if (nextTick % 16 === 5) {
@@ -158,8 +162,14 @@ export function FnafOficinaStage({
         return;
       }
 
-      const dualAllowed = nextTick >= 20; // Desde ~1:30 AM atacan ambos pasillos a la vez
-      const aggression = 0.42 + curHour * 0.06;
+      const dualAllowed = nextTick >= dualFromTick;
+      const aggression = aggBase + curHour * 0.06;
+      const reactTicks =
+        difficulty === 'easy'
+          ? 13
+          : difficulty === 'hard'
+            ? Math.max(6, 8 - Math.floor(curHour / 3))
+            : Math.max(8, 10 - Math.floor(curHour / 3));
 
       // Lógica de Bonnie (Izquierda)
       if (leftSideRef.current === 'bonnie') {
@@ -190,7 +200,7 @@ export function FnafOficinaStage({
         (dualAllowed || rightSideRef.current !== 'chica')
       ) {
         leftSideRef.current = 'bonnie';
-        leftTimerRef.current = Math.max(8, 10 - Math.floor(curHour / 3)); // ~1.7-2.1s
+        leftTimerRef.current = reactTicks;
         setLeftThreat('bonnie');
         setStatusMsg('👣 Pasos rápidos a la IZQUIERDA… ¡revisa ▲ o cierra ◀!');
         tone(220, 0.08, 'triangle', 0.08);
@@ -225,13 +235,13 @@ export function FnafOficinaStage({
         (dualAllowed || leftSideRef.current !== 'bonnie')
       ) {
         rightSideRef.current = 'chica';
-        rightTimerRef.current = Math.max(8, 10 - Math.floor(curHour / 3));
+        rightTimerRef.current = reactTicks;
         setRightThreat('chica');
         setStatusMsg('🍳 Cacerolas sonando a la DERECHA… ¡revisa ▲ o cierra ▶!');
         tone(265, 0.08, 'triangle', 0.08);
       }
     }, 210);
-  }, [finishTurn]);
+  }, [TOTAL_TICKS, drainMult, dualFromTick, aggBase, difficulty, finishTurn]);
 
   const toggleLeft = useCallback(() => {
     const next = !leftDoorRef.current;
@@ -303,7 +313,8 @@ export function FnafOficinaStage({
     return (
       <PassScreen
         playerName={players[pi].name}
-        subtitle="FNAF 1 (Difícil) · Bonnie y Chica atacan a la vez desde 1 AM · Raciona batería hasta 6:00 AM"
+        difficulty={difficulty}
+        subtitle="FNAF 1 · Vigila luces y puertas contra Bonnie y Chica · Raciona batería hasta 6:00 AM"
         onReady={startShift}
       />
     );
@@ -433,9 +444,12 @@ export function FnafPirateCoveStage({
   onFinish,
   registerKeyHandler,
   setBg,
+  difficulty = 'normal',
 }: StageGameProps) {
   const np = players.length;
-  const TOTAL_TICKS = 78; // 78 * 220ms = ~17.2s
+  const TOTAL_TICKS = difficulty === 'easy' ? 66 : difficulty === 'hard' ? 90 : 78;
+  const drainMult = difficulty === 'easy' ? 0.72 : difficulty === 'hard' ? 1.24 : 1.0;
+  const sprintWindowTicks = difficulty === 'easy' ? 8 : difficulty === 'hard' ? 3 : 5;
   const [pi, setPi] = useState(0);
   const [phase, setPhase] = useState<'PASS' | 'PLAY' | 'TURN_END'>('PASS');
   const [camOpen, setCamOpen] = useState(true);
@@ -509,7 +523,7 @@ export function FnafPirateCoveStage({
 
     ivRef.current = window.setInterval(() => {
       ticksRef.current += 1;
-      const drain = 0.62 + (camRef.current ? 1.05 : 0) + (doorRef.current ? 1.7 : 0);
+      const drain = (0.62 + (camRef.current ? 1.05 : 0) + (doorRef.current ? 1.7 : 0)) * drainMult;
       batRef.current = Math.max(0, batRef.current - drain);
       setBattery(Math.ceil(batRef.current));
 
@@ -539,15 +553,21 @@ export function FnafPirateCoveStage({
           }
         }
       } else {
-        const fastPhase = ticksRef.current >= 40;
+        const fastPhase = ticksRef.current >= (difficulty === 'hard' ? 24 : 40);
         const stepCheck = fastPhase && !camRef.current ? 2 : 3;
-        const advanceChance = camRef.current ? 0.16 : 0.56;
+        const advanceChance = camRef.current
+          ? difficulty === 'hard'
+            ? 0.24
+            : 0.16
+          : difficulty === 'easy'
+            ? 0.42
+            : 0.56;
         if (ticksRef.current % stepCheck === 0 && Math.random() < advanceChance) {
           const nextSt = (stageRef.current + 1) as 0 | 1 | 2 | 3;
           stageRef.current = nextSt;
           setFoxyStage(nextSt);
           if (nextSt === 3) {
-            sprintTicksRef.current = 5; // 1.1s para cerrar la puerta oeste!
+            sprintTicksRef.current = sprintWindowTicks;
             tone(190, 0.18, 'sawtooth', 0.14);
           } else {
             tone(320 + nextSt * 60, 0.06, 'triangle', 0.06);
@@ -555,7 +575,7 @@ export function FnafPirateCoveStage({
         }
       }
     }, 220);
-  }, [finishTurn]);
+  }, [TOTAL_TICKS, drainMult, sprintWindowTicks, difficulty, finishTurn]);
 
   const toggleCam = useCallback(() => {
     const next = !camRef.current;
@@ -605,10 +625,12 @@ export function FnafPirateCoveStage({
   }, [registerKeyHandler, handleKey]);
 
   if (phase === 'PASS') {
+    const reactSecs = (sprintWindowTicks * 0.22).toFixed(2);
     return (
       <PassScreen
         playerName={players[pi].name}
-        subtitle="CAM 1C (Difícil) · Foxy corre más rápido: solo 1.1 s para cerrar puerta al salir por CAM 2A"
+        difficulty={difficulty}
+        subtitle={`CAM 1C · Tienes ${reactSecs} s para cerrar la puerta oeste cuando Foxy salga por CAM 2A`}
         onReady={startPlay}
       />
     );
@@ -693,10 +715,12 @@ export function FnafPuppetStage({
   onFinish,
   registerKeyHandler,
   setBg,
+  difficulty = 'normal',
 }: StageGameProps) {
   const np = players.length;
-  const MAX_STOPS = 8;
-  const WINDS_NEEDED = 4;
+  const MAX_STOPS = difficulty === 'easy' ? 6 : difficulty === 'hard' ? 10 : 8;
+  const WINDS_NEEDED = difficulty === 'easy' ? 3 : difficulty === 'hard' ? 5 : 4;
+  const MAX_WARNINGS = difficulty === 'easy' ? 3 : difficulty === 'hard' ? 1 : 2;
 
   const [pi, setPi] = useState(0);
   const [phase, setPhase] = useState<'PASS' | 'PLAYING' | 'STOPPED' | 'JUMPSCARE' | 'TURN_WIN'>(
@@ -794,8 +818,10 @@ export function FnafPuppetStage({
       void audioRef.current.play().catch(() => {});
     }
 
-    // Paradas más rápidas y erráticas (1.5s a 3.5s)
-    const delayMs = 1500 + Math.floor(Math.random() * 2000);
+    const delayMs =
+      difficulty === 'hard'
+        ? 1000 + Math.floor(Math.random() * 1400)
+        : 1500 + Math.floor(Math.random() * 2000);
     stopTimerRef.current = window.setTimeout(() => {
       stopAudio();
       tone(185, 0.09, 'triangle', 0.08);
@@ -804,9 +830,13 @@ export function FnafPuppetStage({
       setTimePct(100);
       setPhase('STOPPED');
 
-      // Ventana exigente: empieza en 1950ms y baja hasta 1050ms (-200ms si hubo amago prematuro)
       const penalty = prematureRef.current * 200;
-      const windowMs = Math.max(1050, 1950 - roundRef.current * 125 - penalty);
+      const windowMs =
+        difficulty === 'easy'
+          ? Math.max(1650, 2600 - roundRef.current * 110 - penalty)
+          : difficulty === 'hard'
+            ? Math.max(800, 1450 - roundRef.current * 95 - penalty)
+            : Math.max(1050, 1950 - roundRef.current * 125 - penalty);
       const t0 = performance.now();
 
       barIvRef.current = window.setInterval(() => {
@@ -819,7 +849,7 @@ export function FnafPuppetStage({
         triggerJumpscare();
       }, windowMs);
     }, delayMs);
-  }, [clearTimers, stopAudio, triggerJumpscare]);
+  }, [clearTimers, stopAudio, difficulty, triggerJumpscare]);
 
   const startPlay = useCallback(() => {
     clearTimers();
@@ -839,7 +869,7 @@ export function FnafPuppetStage({
       prematureRef.current = nextPremature;
       setPrematureCount(nextPremature);
       tone(160, 0.16, 'sawtooth', 0.14);
-      if (nextPremature >= 2) {
+      if (nextPremature >= MAX_WARNINGS) {
         triggerJumpscare();
         return;
       }
@@ -878,7 +908,7 @@ export function FnafPuppetStage({
         scheduleNextStop();
       }
     }
-  }, [phase, pi, clearTimers, stopAudio, scheduleNextStop, triggerJumpscare]);
+  }, [phase, pi, MAX_WARNINGS, WINDS_NEEDED, MAX_STOPS, clearTimers, stopAudio, scheduleNextStop, triggerJumpscare]);
 
   const advanceTurn = useCallback(() => {
     clearTimers();
@@ -924,7 +954,8 @@ export function FnafPuppetStage({
     return (
       <PassScreen
         playerName={players[pi].name}
-        subtitle="Puppet (Difícil) · 8 paradas · Pulsa OK x4 cuando pare la canción · ¡2 toques antes = susto!"
+        difficulty={difficulty}
+        subtitle={`Puppet · ${MAX_STOPS} paradas · Pulsa OK x${WINDS_NEEDED} cuando pare la canción · ¡${MAX_WARNINGS} toque${MAX_WARNINGS > 1 ? 's' : ''} antes = susto!`}
         onReady={startPlay}
       />
     );
@@ -986,7 +1017,7 @@ export function FnafPuppetStage({
       <div className="stage-sub">
         {players[pi].name} · Cuerdas: {roundStop}/{MAX_STOPS} ·{' '}
         <span className={prematureCount > 0 ? 'text-red-400 font-bold' : 'text-slate-300'}>
-          Avisos: {prematureCount}/2
+          Avisos: {prematureCount}/{MAX_WARNINGS}
         </span>
       </div>
 
@@ -1010,7 +1041,7 @@ export function FnafPuppetStage({
       {isStopped ? (
         <>
           <div className="stage-big text-amber-300" style={{fontSize: 'clamp(1.6rem, 5.8vh, 3.6rem)'}}>
-            ¡SE PARÓ LA CANCIÓN! ¡DALE CUERDA x4!
+            ¡SE PARÓ LA CANCIÓN! ¡DALE CUERDA x{WINDS_NEEDED}!
           </div>
           <div className="mt-[1.2vh] flex items-center justify-center gap-[1vw]">
             {Array.from({length: WINDS_NEEDED}, (_, i) => (
@@ -1044,14 +1075,16 @@ export function FnafPuppetStage({
           </div>
           <div className={`stage-sub ${waitHint ? 'text-red-400 font-bold' : 'text-slate-300'}`}>
             {waitHint
-              ? '⚠️ ¡AVISO 1/2! ¡NO PULSES ANTES DE TIEMPO!'
-              : 'Escucha atento — un toque más antes de tiempo despierta a Puppet'}
+              ? `⚠️ ¡AVISO ${prematureCount}/${MAX_WARNINGS}! ¡NO PULSES ANTES DE TIEMPO!`
+              : 'Escucha atento — pulsar antes de tiempo despierta a Puppet'}
           </div>
         </>
       )}
 
       <div className="stage-hint">
-        {isStopped ? 'Pulsa OK 4 veces rápido antes de que se agote la barra' : 'Prohibido pulsar mientras suena'}
+        {isStopped
+          ? `Pulsa OK ${WINDS_NEEDED} veces rápido antes de que se agote la barra`
+          : 'Prohibido pulsar mientras suena'}
       </div>
     </div>
   );
@@ -1068,9 +1101,12 @@ export function FnafSpringtrapStage({
   onFinish,
   registerKeyHandler,
   setBg,
+  difficulty = 'normal',
 }: StageGameProps) {
   const np = players.length;
-  const TOTAL_TICKS = 72;
+  const TOTAL_TICKS = difficulty === 'easy' ? 60 : difficulty === 'hard' ? 84 : 72;
+  const moveMod = difficulty === 'easy' ? 7 : difficulty === 'hard' ? 4 : 5;
+  const errorMod = difficulty === 'easy' ? 15 : difficulty === 'hard' ? 9 : 11;
   const [pi, setPi] = useState(0);
   const [phase, setPhase] = useState<'PASS' | 'PLAY' | 'TURN_END'>('PASS');
   const [springPos, setSpringPos] = useState(1);
@@ -1140,15 +1176,24 @@ export function FnafSpringtrapStage({
         return;
       }
 
-      if (rebootTapsRef.current === 0 && ticksRef.current % 11 === 0 && Math.random() < 0.78) {
-        const tapsNeeded = ticksRef.current >= 30 ? 2 : 1;
+      if (rebootTapsRef.current === 0 && ticksRef.current % errorMod === 0 && Math.random() < 0.78) {
+        const tapsNeeded =
+          difficulty === 'easy'
+            ? 1
+            : difficulty === 'hard'
+              ? ticksRef.current >= 42
+                ? 3
+                : 2
+              : ticksRef.current >= 30
+                ? 2
+                : 1;
         rebootTapsRef.current = tapsNeeded;
         setRebootTapsLeft(tapsNeeded);
         setStatus(`⚠️ ERROR DE AUDIO · ¡Pulsa ▲ ${tapsNeeded}x para reiniciar!`);
         tone(170, 0.22, 'sawtooth', 0.12);
       }
 
-      if (ticksRef.current % 5 === 0) {
+      if (ticksRef.current % moveMod === 0) {
         const nextP = posRef.current + 1;
         posRef.current = nextP;
         setSpringPos(nextP);
@@ -1159,7 +1204,7 @@ export function FnafSpringtrapStage({
         }
       }
     }, 235);
-  }, [finishTurn]);
+  }, [TOTAL_TICKS, errorMod, moveMod, difficulty, finishTurn]);
 
   const sendLure = useCallback(
     (camIdx: number) => {
@@ -1254,7 +1299,8 @@ export function FnafSpringtrapStage({
     return (
       <PassScreen
         playerName={players[pi].name}
-        subtitle="FNAF 3 (Difícil) · Audio delante de él lo atrae hacia ti · Reboot pide ▲x2"
+        difficulty={difficulty}
+        subtitle={`FNAF 3 · Audio delante de él lo atrae hacia ti · Reboot pide ${difficulty === 'easy' ? '▲x1' : difficulty === 'hard' ? '▲x2-x3' : '▲x1-x2'}`}
         onReady={startPlay}
       />
     );
@@ -1344,9 +1390,11 @@ export function FnafClosetStage({
   onFinish,
   registerKeyHandler,
   setBg,
+  difficulty = 'normal',
 }: StageGameProps) {
   const np = players.length;
-  const WAVES = 8;
+  const WAVES = difficulty === 'easy' ? 6 : difficulty === 'hard' ? 10 : 8;
+  const hideDelayMs = difficulty === 'easy' ? 1650 : difficulty === 'hard' ? 520 : 950;
   const [pi, setPi] = useState(0);
   const [phase, setPhase] = useState<'PASS' | 'PLAY' | 'FEEDBACK' | 'TURN_END'>('PASS');
   const [waveIdx, setWaveIdx] = useState(0);
@@ -1395,7 +1443,12 @@ export function FnafClosetStage({
       setPhase('PLAY');
       tone(cueKind === 'breath' ? 140 : 420, 0.14, 'triangle', 0.08);
 
-      const limitMs = Math.max(1650, 2450 - idx * 100);
+      const limitMs =
+        difficulty === 'easy'
+          ? Math.max(2400, 3300 - idx * 110)
+          : difficulty === 'hard'
+            ? Math.max(1250, 1750 - idx * 65)
+            : Math.max(1650, 2450 - idx * 100);
       const t0 = performance.now();
       barIvRef.current = window.setInterval(() => {
         const elapsed = performance.now() - t0;
@@ -1404,7 +1457,7 @@ export function FnafClosetStage({
 
       hideRef.current = window.setTimeout(() => {
         setCueHidden(true);
-      }, 950);
+      }, hideDelayMs);
 
       expireRef.current = window.setTimeout(() => {
         clearWaveTimers();
@@ -1414,7 +1467,7 @@ export function FnafClosetStage({
         setPhase('FEEDBACK');
       }, limitMs);
     },
-    [clearWaveTimers],
+    [clearWaveTimers, difficulty, hideDelayMs],
   );
 
   const startPlay = useCallback(() => {
@@ -1494,7 +1547,7 @@ export function FnafClosetStage({
         }
       }
     },
-    [phase, waveIdx, pi, np, waveScore, scores, startPlay, act, nextWave, onFinish],
+    [phase, waveIdx, WAVES, pi, np, waveScore, scores, startPlay, act, nextWave, onFinish],
   );
 
   useEffect(() => {
@@ -1505,7 +1558,8 @@ export function FnafClosetStage({
     return (
       <PassScreen
         playerName={players[pi].name}
-        subtitle="FNAF 4 (Difícil) · 8 oleadas contrarreloj (2.4 s) · La pista desaparece rápido"
+        difficulty={difficulty}
+        subtitle={`FNAF 4 · ${WAVES} oleadas contrarreloj · La pista se desvanece en ${(hideDelayMs / 1000).toFixed(2)} s`}
         onReady={startPlay}
       />
     );
@@ -1589,24 +1643,29 @@ export function FnafSalvageStage({
   onFinish,
   registerKeyHandler,
   setBg,
+  difficulty = 'normal',
 }: StageGameProps) {
   const np = players.length;
-  const TAPES = 7;
-  const MAX_TICKS = 88; // 88 * 250ms = 22s límite
+  const TAPES = difficulty === 'easy' ? 5 : difficulty === 'hard' ? 9 : 7;
+  const MAX_TICKS = difficulty === 'easy' ? 104 : difficulty === 'hard' ? 80 : 88;
+  const INIT_TASERS = difficulty === 'easy' ? 4 : difficulty === 'hard' ? 2 : 3;
+  const ATTACK_TICKS = difficulty === 'easy' ? 7 : difficulty === 'hard' ? 3 : 5;
+  const SHIFT_SECS = Math.round((MAX_TICKS * 250) / 1000);
+
   const [pi, setPi] = useState(0);
   const [phase, setPhase] = useState<'PASS' | 'PLAY' | 'TURN_END'>('PASS');
   const [actor, setActor] = useState(SALVAGE_ACTORS[0]);
   const [tape, setTape] = useState(1);
   const [posture, setPosture] = useState<'calm' | 'twitch' | 'attack'>('calm');
-  const [tasersLeft, setTasersLeft] = useState(3);
+  const [tasersLeft, setTasersLeft] = useState(INIT_TASERS);
   const [valueEarned, setValueEarned] = useState(0);
-  const [timeLeftSec, setTimeLeftSec] = useState(22);
+  const [timeLeftSec, setTimeLeftSec] = useState(SHIFT_SECS);
   const [msg, setMsg] = useState('');
   const [alive, setAlive] = useState(true);
   const [scores, setScores] = useState<number[]>(() => Array(np).fill(0));
 
   const postureRef = useRef<'calm' | 'twitch' | 'attack'>('calm');
-  const tasersRef = useRef(3);
+  const tasersRef = useRef(INIT_TASERS);
   const valueRef = useRef(0);
   const tapeRef = useRef(1);
   const ticksRef = useRef(0);
@@ -1648,7 +1707,7 @@ export function FnafSalvageStage({
     const picked = SALVAGE_ACTORS[Math.floor(Math.random() * SALVAGE_ACTORS.length)];
     setActor(picked);
     postureRef.current = 'calm';
-    tasersRef.current = 3;
+    tasersRef.current = INIT_TASERS;
     valueRef.current = 0;
     tapeRef.current = 1;
     ticksRef.current = 0;
@@ -1656,13 +1715,16 @@ export function FnafSalvageStage({
 
     setTape(1);
     setPosture('calm');
-    setTasersLeft(3);
+    setTasersLeft(INIT_TASERS);
     setValueEarned(0);
-    setTimeLeftSec(22);
+    setTimeLeftSec(SHIFT_SECS);
     setAlive(true);
     setMsg(`“Audio Prompt #1”… Anota con OK mientras ${picked.name} siga quieto`);
     setPhase('PLAY');
     tone(520, 0.1);
+
+    const attackChance = difficulty === 'easy' ? 0.38 : difficulty === 'hard' ? 0.68 : 0.54;
+    const twitchChance = difficulty === 'easy' ? 0.28 : difficulty === 'hard' ? 0.56 : 0.42;
 
     ivRef.current = window.setInterval(() => {
       ticksRef.current += 1;
@@ -1681,21 +1743,21 @@ export function FnafSalvageStage({
           return;
         }
       } else if (postureRef.current === 'twitch') {
-        if (Math.random() < 0.54) {
+        if (Math.random() < attackChance) {
           postureRef.current = 'attack';
-          attackTimerRef.current = 5; // 1.25 s para usar Taser ▲
+          attackTimerRef.current = ATTACK_TICKS;
           setPosture('attack');
           setMsg('🚨 ¡SE LEVANTÓ! ¡USA EL TASER (▲) AHORA!');
           tone(180, 0.22, 'sawtooth', 0.14);
         }
-      } else if (Math.random() < 0.42) {
+      } else if (Math.random() < twitchChance) {
         postureRef.current = 'twitch';
         setPosture('twitch');
         setMsg(`👀 ${picked.name} movió el cuello… ¡cuidado al anotar!`);
         tone(300, 0.08, 'triangle', 0.07);
       }
     }, 250);
-  }, [finishTurn]);
+  }, [INIT_TASERS, SHIFT_SECS, MAX_TICKS, ATTACK_TICKS, difficulty, finishTurn]);
 
   const writeClipboard = useCallback(() => {
     if (phase !== 'PLAY') return;
@@ -1703,9 +1765,9 @@ export function FnafSalvageStage({
       finishTurn(false, `📋 ¡Miraste el papel cuando ${actor.name} iba a atacar!`);
       return;
     }
-    if (postureRef.current === 'twitch' && Math.random() < 0.5) {
+    if (postureRef.current === 'twitch' && Math.random() < (difficulty === 'hard' ? 0.68 : 0.5)) {
       postureRef.current = 'attack';
-      attackTimerRef.current = 5;
+      attackTimerRef.current = ATTACK_TICKS;
       setPosture('attack');
       setMsg('🚨 ¡El ruido del bolígrafo lo alteró! ¡TASER ▲ YA!');
       tone(175, 0.22, 'sawtooth', 0.16);
@@ -1726,7 +1788,7 @@ export function FnafSalvageStage({
     tapeRef.current += 1;
     setTape(tapeRef.current);
     setMsg(`“Audio Prompt #${tapeRef.current}”… Anota con OK si sigue estable`);
-  }, [phase, actor.name, finishTurn]);
+  }, [phase, actor.name, TAPES, ATTACK_TICKS, difficulty, finishTurn]);
 
   const useTaser = useCallback(() => {
     if (phase !== 'PLAY') return;
@@ -1788,7 +1850,8 @@ export function FnafSalvageStage({
     return (
       <PassScreen
         playerName={players[pi].name}
-        subtitle="FNAF 6 (Difícil) · 7 cintas en 22 s · Si anotas cuando tiembla puede atacar · Solo 3 Tasers"
+        difficulty={difficulty}
+        subtitle={`FNAF 6 · ${TAPES} cintas en ${SHIFT_SECS} s · Si anotas cuando tiembla puede atacar · ${INIT_TASERS} Tasers`}
         onReady={startSalvage}
       />
     );
@@ -1814,7 +1877,7 @@ export function FnafSalvageStage({
       <div className="flex justify-between items-center max-w-[74vw] mx-auto text-[2.5vh] font-bold">
         <span className="text-amber-300">📼 Cinta {tape}/{TAPES}</span>
         <span>{actor.name} · ⏱️ {timeLeftSec}s</span>
-        <span className="text-cyan-300">⚡ Tasers: {tasersLeft}/3 · ${valueEarned * 500}</span>
+        <span className="text-cyan-300">⚡ Tasers: {tasersLeft}/{INIT_TASERS} · ${valueEarned * 500}</span>
       </div>
 
       <div
@@ -1868,9 +1931,10 @@ export function FnafBalloonBoyStage({
   onFnafLockout,
   registerKeyHandler,
   setBg,
+  difficulty = 'normal',
 }: BalloonBoyStageProps) {
-  const MAX_HITS = 6;
-  const MAX_STRIKES = 2;
+  const MAX_HITS = difficulty === 'easy' ? 4 : difficulty === 'hard' ? 8 : 6;
+  const MAX_STRIKES = difficulty === 'easy' ? 3 : difficulty === 'hard' ? 1 : 2;
   const [phase, setPhase] = useState<'WAIT' | 'APPEAR' | 'HIT' | 'JUMPSCARE' | 'WIN'>('WAIT');
   const [hits, setHits] = useState(0);
   const [strikes, setStrikes] = useState(0);
@@ -1989,8 +2053,12 @@ export function FnafBalloonBoyStage({
         setPhase('APPEAR');
         playBbClip(nextSound);
 
-        // Ventana más rápida: empieza en 1900ms y baja hasta 1100ms
-        const windowMs = Math.max(1100, 1900 - currentHits * 155);
+        const windowMs =
+          difficulty === 'easy'
+            ? Math.max(1650, 2500 - currentHits * 170)
+            : difficulty === 'hard'
+              ? Math.max(780, 1400 - currentHits * 95)
+              : Math.max(1100, 1900 - currentHits * 155);
         const t0 = performance.now();
         barIvRef.current = window.setInterval(() => {
           const elapsed = performance.now() - t0;
@@ -2002,7 +2070,7 @@ export function FnafBalloonBoyStage({
         }, windowMs);
       }, delayMs);
     },
-    [clearTimers, playBbClip, triggerJumpscare],
+    [clearTimers, playBbClip, difficulty, triggerJumpscare],
   );
 
   useEffect(() => {
@@ -2068,7 +2136,7 @@ export function FnafBalloonBoyStage({
         }
       }, 420);
     },
-    [phase, lane, clearTimers, stopAllBbAudio, scheduleNextAppearance, showTempNote, triggerJumpscare],
+    [phase, lane, MAX_STRIKES, MAX_HITS, clearTimers, stopAllBbAudio, scheduleNextAppearance, showTempNote, triggerJumpscare],
   );
 
   const finishVictory = useCallback(() => {
@@ -2089,7 +2157,7 @@ export function FnafBalloonBoyStage({
       },
       sharedPts,
     );
-  }, [clearTimers, stopAllBbAudio, players.length, onFinish, scheduleNextAppearance]);
+  }, [clearTimers, stopAllBbAudio, players.length, MAX_HITS, onFinish, scheduleNextAppearance]);
 
   const handleKey = useCallback(
     (k: RemoteKey) => {
@@ -2171,7 +2239,7 @@ export function FnafBalloonBoyStage({
           ? '¡GOLPE CERTERO!'
           : phase === 'APPEAR'
             ? `Sonido detectado: "${BB_SOUNDS[soundIdx].label}"`
-            : missNote ?? 'Escucha dónde aparece Balloon Boy… (¡2 fallos = jumpscare!)'}
+            : missNote ?? `Escucha dónde aparece Balloon Boy… (¡${MAX_STRIKES} fallo${MAX_STRIKES > 1 ? 's' : ''} = jumpscare!)`}
       </div>
 
       <div className="mx-auto mt-[2.4vh] grid max-w-[82vw] grid-cols-3 gap-[1.8vw]">
@@ -2271,9 +2339,13 @@ export function FnafCamarasStage({
   onFinish,
   registerKeyHandler,
   setBg,
+  difficulty = 'normal',
 }: StageGameProps) {
   const np = players.length;
-  const SHIFT_SECONDS = 25;
+  const SHIFT_SECONDS = difficulty === 'easy' ? 20 : difficulty === 'hard' ? 30 : 25;
+  const speedMult = difficulty === 'easy' ? 0.7 : difficulty === 'hard' ? 1.42 : 1.0;
+  const moveChance = difficulty === 'easy' ? 0.14 : difficulty === 'hard' ? 0.36 : 0.22;
+  const emptyLockMs = difficulty === 'easy' ? 400 : difficulty === 'hard' ? 1050 : 650;
 
   const [pi, setPi] = useState(0);
   const [phase, setPhase] = useState<'PASS' | 'PLAY' | 'TURN_END'>('PASS');
@@ -2321,7 +2393,7 @@ export function FnafCamarasStage({
     cooldownRef.current = false;
     setStatus('4 animatrónicos acechan · Localiza y frena con OK');
     setPhase('PLAY');
-  }, []);
+  }, [SHIFT_SECONDS]);
 
   useEffect(() => {
     if (phase !== 'PLAY') return;
@@ -2348,12 +2420,12 @@ export function FnafCamarasStage({
       let breached: string | null = null;
       const next = threatsRef.current.map((item) => {
         const isWatched = item.camIdx === selCamRef.current;
-        const baseSpeed = item.actor === 'foxy' ? 8.6 : 7.0;
-        const step = isWatched ? 2.6 : baseSpeed + Math.random() * 4.8;
+        const baseSpeed = (item.actor === 'foxy' ? 8.6 : 7.0) * speedMult;
+        const step = isWatched ? 2.6 * speedMult : baseSpeed + Math.random() * 4.8 * speedMult;
         let nextThreat = item.threat + step;
         let nextCam = item.camIdx;
 
-        if (!isWatched && Math.random() < 0.22) {
+        if (!isWatched && Math.random() < moveChance) {
           nextCam = Math.floor(Math.random() * SEC_CAMS.length);
         }
 
@@ -2384,7 +2456,7 @@ export function FnafCamarasStage({
       window.clearInterval(secIv);
       window.clearInterval(aiIv);
     };
-  }, [phase, pi]);
+  }, [phase, pi, SHIFT_SECONDS, speedMult, moveChance]);
 
   const switchCam = useCallback((targetCam: number) => {
     setSelCam(targetCam);
@@ -2423,10 +2495,12 @@ export function FnafCamarasStage({
       if (coolTimerRef.current) window.clearTimeout(coolTimerRef.current);
       coolTimerRef.current = window.setTimeout(() => {
         cooldownRef.current = false;
-      }, 650);
-      setStatus(`⚠️ Estática en ${SEC_CAMS[activeCam].label} (0.65 s bloqueo de flash)`);
+      }, emptyLockMs);
+      setStatus(
+        `⚠️ Estática en ${SEC_CAMS[activeCam].label} (${(emptyLockMs / 1000).toFixed(2)} s bloqueo de flash)`,
+      );
     }
-  }, [phase]);
+  }, [phase, emptyLockMs]);
 
   const handleKey = useCallback(
     (k: RemoteKey) => {
@@ -2470,7 +2544,8 @@ export function FnafCamarasStage({
     return (
       <PassScreen
         playerName={players[pi].name}
-        subtitle="Cámaras FNAF (Difícil) · Freddy, Bonnie, Chica y Foxy · 25 s · Flash en vacío bloquea 0.65 s"
+        difficulty={difficulty}
+        subtitle={`Cámaras FNAF · Freddy, Bonnie, Chica y Foxy · ${SHIFT_SECONDS} s · Flash en vacío bloquea ${(emptyLockMs / 1000).toFixed(2)} s`}
         onReady={startShift}
       />
     );

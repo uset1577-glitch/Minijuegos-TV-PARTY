@@ -1,14 +1,7 @@
-import {CSSProperties, useCallback, useEffect, useRef, useState} from 'react';
-import amongusPanelImg from './assets/images/amongus_deck_panel_1795362189235.jpg';
-import amongusBgImg from './assets/images/amongus_space_bg_1795362188021.jpg';
-import amongusTileImg from './assets/images/amongus_cafeteria_tile_1795362188904.jpg';
-import fnafPanelImg from './assets/images/fnaf_metal_panel_1795311383152.jpg';
-import fnafBgImg from './assets/images/fnaf_pizzeria_bg_1795311383114.jpg';
+import {memo, useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import puppetCardImg from './assets/images/fnaf_puppet_box_peeking_1795317909553.jpg';
-import fnafTileImg from './assets/images/fnaf_tile_texture_1795311382664.jpg';
 import {
   AdminCrewIconSvg,
-  AmongUsVictoryScreen,
   CommsWaveBadgeSvg,
   CrewmateSvg,
   DistributorRingBadgeSvg,
@@ -16,6 +9,12 @@ import {
   ShapeshifterBadgeSvg,
 } from './components/stage/AmongUsArtwork';
 import {ConfettiBurst} from './components/stage/ConfettiBurst';
+import {
+  CupGameDef,
+  CupTournamentState,
+  TournamentCupScreen,
+  createInitialCupState,
+} from './components/stage/TournamentCupScreen';
 import {
   DilemaIaStage,
   EmojiIaStage,
@@ -61,6 +60,9 @@ import {
 } from './components/stage/StageGamesExtra';
 import {FnafCamSceneSvg, FnafPhoneSvg} from './components/stage/FnafExtrasArtwork';
 import {
+  AppLanguage,
+  DIFFICULTY_META,
+  GameDifficulty,
   PLAYER_STAGE_COLORS,
   RemoteKey,
   StagePlayer,
@@ -69,6 +71,16 @@ import {
   preloadControlClick,
   tone,
 } from './utils/stageAudio';
+import {
+  LANGUAGE_OPTIONS,
+  UI_TEXT,
+  getAchievementText,
+  getDifficultyLabel,
+  getLocalizedGameOverride,
+  getPlayerLabel,
+  loadInitialLanguage,
+  saveLanguage,
+} from './utils/i18n';
 import {
   MusicTrackId,
   bindGlobalMusicUnlock,
@@ -143,7 +155,6 @@ interface MenuItem {
 }
 
 const CLASSIC_GAME_ITEMS: MenuItem[] = [
-  // Juegos rápidos sin IA (instantáneos)
   {id: 'bomba', name: 'Patata caliente', emoji: '💣', desc: '2 quemaduras · giros'},
   {id: 'reflejos', name: 'Reflejos', emoji: '⚡', desc: 'Con amagos + 950 ms'},
   {id: 'simon', name: 'Simón', emoji: '🧠', desc: 'Inicio x3 + reloj'},
@@ -154,26 +165,17 @@ const CLASSIC_GAME_ITEMS: MenuItem[] = [
   {id: 'semaforo', name: 'Semáforo loco', emoji: '🚦', desc: 'Con amago amarillo'},
   {id: 'colores', name: 'Color tramposo', emoji: '🎨', desc: '6 colores · regla dual'},
   {id: 'flechas', name: 'Duelo flechas', emoji: '🏹', desc: '16 flechas + inversas'},
-  // Juegos familiares con IA
-  {id: 'ruleta', name: 'Ruleta IA', emoji: '🎡', desc: 'Retos en familia'},
-  {id: 'trivia', name: 'Trivia IA', emoji: '❓', desc: 'Preguntas al vuelo'},
-  {id: 'impostor', name: 'Impostor IA', emoji: '🎭', desc: '3–6 jugadores'},
-  {id: 'dilema', name: 'Dilema IA', emoji: '⚖️', desc: '¿Qué prefieres?'},
-  {id: 'probable', name: 'Más probable IA', emoji: '👉', desc: '¿Quién de todos?'},
-  {id: 'yonunca', name: 'Yo nunca IA', emoji: '🙋', desc: 'Versión familiar'},
-  {id: 'emoji', name: 'Cine Emojis IA', emoji: '🎬', desc: 'Adivina el título'},
-  {id: 'pistas', name: 'Tres Pistas IA', emoji: '💡', desc: 'Menos pistas = más'},
-  {id: 'verdad', name: 'Verdad o Mito', emoji: '✅', desc: 'Datos reales IA'},
-  {id: 'historia', name: 'Historia IA', emoji: '📖', desc: 'Cuento en familia'},
+  {id: 'ruleta', name: 'Ruleta de Retos', emoji: '🎡', desc: 'Retos en familia'},
+  {id: 'trivia', name: 'Trivia Rápida', emoji: '❓', desc: 'Cultura y curiosidades'},
+  {id: 'impostor', name: 'El Impostor', emoji: '🎭', desc: '3–6 jugadores'},
+  {id: 'dilema', name: 'Dilema Extremo', emoji: '⚖️', desc: '¿Qué prefieres?'},
+  {id: 'probable', name: 'Más Probable', emoji: '👉', desc: '¿Quién de todos?'},
+  {id: 'yonunca', name: 'Yo Nunca', emoji: '🙋', desc: 'Versión familiar'},
+  {id: 'emoji', name: 'Cine en Emojis', emoji: '🎬', desc: 'Adivina el título'},
+  {id: 'pistas', name: 'Tres Pistas', emoji: '💡', desc: 'Menos pistas = más'},
+  {id: 'verdad', name: 'Verdad o Mito', emoji: '✅', desc: 'Pon a prueba tu mente'},
+  {id: 'historia', name: 'Cuento Interactivo', emoji: '📖', desc: 'Aventura en familia'},
 ];
-
-const THEMED_HIDDEN_AI_GAMES = new Set<MenuGameId>([
-  'ruleta',
-  'dilema',
-  'probable',
-  'yonunca',
-  'historia',
-]);
 
 const FNAF_EXCLUSIVE_ITEMS: MenuItem[] = [
   {
@@ -274,7 +276,7 @@ const AMONGUS_EXCLUSIVE_ITEMS: MenuItem[] = [
 
 const SESSION_MENU_ITEMS: MenuItem[] = [
   {id: 'players', name: 'Jugadores', emoji: '👥', desc: 'OK: cambiar (1–6)'},
-  {id: 'tournament', name: 'Torneo', emoji: '🏆', desc: 'OK: cambiar meta'},
+  {id: 'tournament', name: 'Copa Torneo', emoji: '🏆', desc: 'OK: abrir pantalla copa'},
   {id: 'reset', name: 'Reiniciar puntos', emoji: '🔄', desc: 'Todos en cero'},
 ];
 
@@ -289,11 +291,16 @@ const FNAF_MENU_OVERRIDES: Partial<Record<MenuGameId, {name: string; emoji: stri
   semaforo: {name: 'Luz de Foxy', emoji: '🦊', desc: 'Con amago amarillo'},
   colores: {name: 'Cables Fazbear', emoji: '🔌', desc: '6 colores · regla dual'},
   flechas: {name: 'Ronda Cámaras', emoji: '📡', desc: '16 flechas + inversas'},
-  trivia: {name: 'Trivia FNAF IA', emoji: '🐻', desc: '¿Cuánto sabes?'},
+  ruleta: {name: 'Ruleta Fazbear', emoji: '🎡', desc: 'Retos de guardia'},
+  trivia: {name: 'Trivia Fazbear', emoji: '🐻', desc: '¿Cuánto sabes de FNAF?'},
   impostor: {name: 'Impostor Pizzería', emoji: '🎭', desc: '3–6 guardias'},
+  dilema: {name: 'Dilema Nocturno', emoji: '⚖️', desc: '¿Qué prefieres?'},
+  probable: {name: 'Guardia Sospechoso', emoji: '👉', desc: '¿Quién haría esto?'},
+  yonunca: {name: 'Yo Nunca en Turno', emoji: '🙋', desc: 'Confesiones Fazbear'},
   emoji: {name: 'FNAF en Emojis', emoji: '🎬', desc: 'Personajes y salas'},
   pistas: {name: '3 Pistas Fazbear', emoji: '💡', desc: 'Menos pistas = más'},
   verdad: {name: 'Mito o Realidad', emoji: '📋', desc: 'Curiosidades FNAF'},
+  historia: {name: 'Bitácora del Turno', emoji: '📖', desc: 'Noche en la pizzería'},
 };
 
 const AMONGUS_MENU_OVERRIDES: Partial<Record<MenuGameId, {name: string; emoji: string; desc: string}>> = {
@@ -307,21 +314,36 @@ const AMONGUS_MENU_OVERRIDES: Partial<Record<MenuGameId, {name: string; emoji: s
   semaforo: {name: 'Luz de Cafetería', emoji: '🚨', desc: 'Con amago amarillo'},
   colores: {name: 'Cables de Admin', emoji: '🔌', desc: '6 colores · regla dual'},
   flechas: {name: 'Ruta por Skeld', emoji: '🧭', desc: '16 flechas + inversas'},
-  trivia: {name: 'Trivia Skeld IA', emoji: '👽', desc: 'Ciencia y espacio'},
-  impostor: {name: 'El Impostor IA', emoji: '🚀', desc: '3–6 tripulantes'},
-  emoji: {name: 'Tareas en Emojis', emoji: '🎬', desc: 'Adivina la misión'},
+  ruleta: {name: 'Ruleta de Cafetería', emoji: '🎡', desc: 'Retos en la nave'},
+  trivia: {name: 'Trivia Among Us', emoji: '👽', desc: 'Mapas, roles y tareas'},
+  impostor: {name: '¿Quién es Impostor?', emoji: '🚀', desc: '3–6 tripulantes'},
+  dilema: {name: 'Dilema Espacial', emoji: '⚖️', desc: '¿Qué prefieres hacer?'},
+  probable: {name: 'Más Sospechoso', emoji: '👉', desc: 'Votación en Cafetería'},
+  yonunca: {name: 'Yo Nunca en Nave', emoji: '🙋', desc: 'Confesiones Skeld'},
+  emoji: {name: 'Nave en Emojis', emoji: '🎬', desc: 'Adivina la misión'},
   pistas: {name: '3 Pistas de Nave', emoji: '💡', desc: 'Radar de pistas'},
-  verdad: {name: 'Dato o Sabotaje', emoji: '📋', desc: 'Mitos del cosmos'},
+  verdad: {name: 'Dato o Sabotaje', emoji: '📋', desc: 'Reglas del juego'},
+  historia: {name: 'Crónica de Skeld', emoji: '📖', desc: 'Sobrevive a la misión'},
 };
 
-const TOURNAMENT_GOALS = [15, 25, 50, 75, 100, 0];
+const DIFFICULTY_ORDER: GameDifficulty[] = ['easy', 'normal', 'hard'];
 const NP_KEY = 'mj_np_v2';
 const PTS_KEY = 'mj_pts_v2';
-const GOAL_KEY = 'mj_goal_v1';
 const THEME_KEY = 'mj_theme_v1';
+const DIFFICULTY_KEY = 'mj_diff_v1';
 const FNAF_LOCK_UNTIL_KEY = 'mj_fnaf_lock_until_v1';
 const AMONGUS_LOCK_UNTIL_KEY = 'mj_au_lock_until_v1';
 const FNAF_RING_MP3 = '/assets/aistudio/fnaf_ring_bab7c794.mp3';
+
+function loadInitialDifficulty(): GameDifficulty {
+  try {
+    const raw = localStorage.getItem(DIFFICULTY_KEY);
+    if (raw === 'easy' || raw === 'normal' || raw === 'hard') return raw;
+  } catch {
+    // ignore
+  }
+  return 'normal';
+}
 
 function loadInitialLockUntil(key: string): number {
   try {
@@ -377,19 +399,6 @@ function loadInitialCount(): number {
   return 4;
 }
 
-function loadInitialGoal(): number {
-  try {
-    const raw = localStorage.getItem(GOAL_KEY);
-    if (raw !== null) {
-      const val = Number(raw);
-      if (TOURNAMENT_GOALS.includes(val)) return val;
-    }
-  } catch {
-    // ignore
-  }
-  return 50;
-}
-
 function loadInitialPlayers(): StagePlayer[] {
   const base: StagePlayer[] = [0, 1, 2, 3, 4, 5].map((i) => ({
     id: i,
@@ -417,27 +426,92 @@ interface PodiumState {
   rankIndices: number[];
   lines: string[];
   ptsGiven: number[];
-  tournamentReached: boolean;
   onAgain: () => void;
 }
 
-interface ChampionState {
-  goal: number;
-  standings: {idx: number; name: string; pts: number}[];
-  winnerNames: string[];
-  topPlayerIdx: number;
+interface StageMenuCardProps {
+  item: MenuItem;
+  idx: number;
+  selected: boolean;
+  emoji: string;
+  label: string;
+  sub: string;
+  exclusiveLabel: string;
+  shipLabel: string;
+  onSelect: (idx: number) => void;
 }
+
+const StageMenuCard = memo(function StageMenuCard({
+  item,
+  idx,
+  selected,
+  emoji,
+  label,
+  sub,
+  exclusiveLabel,
+  shipLabel,
+  onSelect,
+}: StageMenuCardProps) {
+  return (
+    <div
+      onClick={() => onSelect(idx)}
+      className={`stage-card ${item.fnafExclusive ? 'fnaf-exclusive' : ''} ${
+        item.amongusExclusive ? 'amongus-exclusive' : ''
+      } ${selected ? 'sel' : ''}`}
+    >
+      {item.fnafExclusive && <span className="fnaf-ex-tag">{exclusiveLabel}</span>}
+      {item.amongusExclusive && <span className="amongus-ex-tag">{shipLabel}</span>}
+      <div className="e">
+        {item.id === 'fnaf_puppet' ? (
+          <img
+            src={puppetCardImg}
+            alt="Caja de Puppet"
+            referrerPolicy="no-referrer"
+            className="mx-auto h-[4.1vh] w-[4.1vh] rounded-[0.75vh] border border-amber-400/50 object-cover"
+          />
+        ) : item.id === 'fnaf_camaras' ? (
+          <div className="mx-auto h-[4.1vh] w-[6.4vh] overflow-hidden rounded-[0.65vh] border border-amber-400/50 bg-black">
+            <FnafCamSceneSvg camId="CAM 1A" actor="freddy" threatPct={25} flashed={false} />
+          </div>
+        ) : item.id === 'au_expulsion' ? (
+          <CrewmateSvg
+            bodyColor="#dc2626"
+            shadeColor="#991b1b"
+            className="mx-auto h-[4.1vh] w-[4.1vh]"
+          />
+        ) : item.id === 'au_admin' ? (
+          <AdminCrewIconSvg className="mx-auto h-[4.1vh] w-[3.6vh]" />
+        ) : item.id === 'au_distribuidor' ? (
+          <DistributorRingBadgeSvg className="mx-auto h-[4.1vh] w-[4.1vh]" />
+        ) : item.id === 'au_comms' ? (
+          <CommsWaveBadgeSvg className="mx-auto h-[3.9vh] w-[5.8vh]" />
+        ) : (
+          emoji
+        )}
+      </div>
+      <div className="t">{label}</div>
+      <div className="d">{sub}</div>
+    </div>
+  );
+});
 
 export default function App() {
   const [showIntro, setShowIntro] = useState(true);
   const [introLeaving, setIntroLeaving] = useState(false);
   const [np, setNp] = useState<number>(loadInitialCount);
-  const [tournamentGoal, setTournamentGoal] = useState<number>(loadInitialGoal);
   const [players, setPlayers] = useState<StagePlayer[]>(loadInitialPlayers);
   const [menuSel, setMenuSel] = useState(0);
   const [menuFocusZone, setMenuFocusZone] = useState<'grid' | 'top'>('grid');
-  const [topSel, setTopSel] = useState<0 | 1 | 2 | 3 | 4>(0);
+  const [topSel, setTopSel] = useState<0 | 1 | 2 | 3 | 4 | 5 | 6>(0);
   const [themeMode, setThemeMode] = useState<ThemeMode>(loadInitialTheme);
+  const [difficulty, setDifficulty] = useState<GameDifficulty>(loadInitialDifficulty);
+  const [lang, setLang] = useState<AppLanguage>(loadInitialLanguage);
+  const [showLanguageModal, setShowLanguageModal] = useState(false);
+  const [langSel, setLangSel] = useState<number>(() => {
+    const idx = LANGUAGE_OPTIONS.findIndex((o) => o.code === loadInitialLanguage());
+    return idx >= 0 ? idx : 0;
+  });
+  const [cupTournament, setCupTournament] = useState<CupTournamentState | null>(null);
   const [fnafLockUntil, setFnafLockUntil] = useState<number>(() =>
     loadInitialLockUntil(FNAF_LOCK_UNTIL_KEY),
   );
@@ -458,8 +532,6 @@ export default function App() {
   const [activeGame, setActiveGame] = useState<MenuGameId | null>(null);
   const [gameRunKey, setGameRunKey] = useState(0);
   const [podium, setPodium] = useState<PodiumState | null>(null);
-  const [champion, setChampion] = useState<ChampionState | null>(null);
-  const [championLockSec, setChampionLockSec] = useState(0);
   const [bg, setBg] = useState('#05070a');
   const [musicOn, setMusicOn] = useState<boolean>(() => isMusicEnabled());
   const [achievements, setAchievements] = useState<AchievementsStore>(loadAchievements);
@@ -488,11 +560,13 @@ export default function App() {
   activeGameRef.current = activeGame;
   const playersRef = useRef(players);
   playersRef.current = players;
-  const championTimerRef = useRef<number | null>(null);
-  const championUnlockAtRef = useRef(0);
+  const cupTournamentRef = useRef<CupTournamentState | null>(null);
+  cupTournamentRef.current = cupTournament;
   const introTimerRef = useRef<number | null>(null);
   const introLeaveTimerRef = useRef<number | null>(null);
   const phoneRingAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  const t = UI_TEXT[lang];
 
   const registerKeyHandler = useCallback((handler: ((k: RemoteKey) => void) | null) => {
     gameKeyHandlerRef.current = handler;
@@ -531,7 +605,6 @@ export default function App() {
 
     return () => {
       jingleTimers.forEach((id) => window.clearTimeout(id));
-      if (championTimerRef.current) window.clearTimeout(championTimerRef.current);
       if (introTimerRef.current) window.clearTimeout(introTimerRef.current);
       if (introLeaveTimerRef.current) window.clearTimeout(introLeaveTimerRef.current);
       ringEl.pause();
@@ -545,14 +618,15 @@ export default function App() {
     let track: MusicTrackId =
       themeMode === 'fnaf' ? 'menu_fnaf' : themeMode === 'amongus' ? 'menu_amongus' : 'menu';
     if (showIntro) track = 'none';
-    else if (champion) track = themeMode === 'amongus' ? 'champion_amongus' : 'champion';
+    else if (cupTournament?.phase === 'CHAMPION')
+      track = themeMode === 'amongus' ? 'champion_amongus' : 'champion';
     else if (podium) track = 'podium';
     else if (activeGame === 'fnaf_puppet' || activeGame === 'fnaf_balloon_boy') track = 'none';
     else if (activeGame === 'simon' && themeMode === 'fnaf') track = 'simon_fnaf';
     else if (activeGame === 'bomba' && themeMode === 'amongus') track = 'au_alarma';
     else if (activeGame) track = activeGame;
     setMusicTrack(track);
-  }, [showIntro, activeGame, podium, champion, themeMode]);
+  }, [showIntro, activeGame, podium, cupTournament?.phase, themeMode]);
 
   useEffect(() => {
     try {
@@ -561,14 +635,6 @@ export default function App() {
       // ignore
     }
   }, [np]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(GOAL_KEY, String(tournamentGoal));
-    } catch {
-      // ignore
-    }
-  }, [tournamentGoal]);
 
   useEffect(() => {
     try {
@@ -585,6 +651,18 @@ export default function App() {
       // ignore
     }
   }, [themeMode]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(DIFFICULTY_KEY, difficulty);
+    } catch {
+      // ignore
+    }
+  }, [difficulty]);
+
+  useEffect(() => {
+    saveLanguage(lang);
+  }, [lang]);
 
   const fnafLockRemainingSec =
     fnafLockUntil > lockNowMs ? Math.max(0, Math.ceil((fnafLockUntil - lockNowMs) / 1000)) : 0;
@@ -639,22 +717,31 @@ export default function App() {
     return () => window.clearTimeout(t);
   }, [missedCallNotice]);
 
-  const activePlayers = players.slice(0, np);
+  const activePlayers = useMemo(
+    () =>
+      players.slice(0, np).map((p, idx) => ({
+        ...p,
+        name: getPlayerLabel(idx, lang),
+      })),
+    [players, np, lang],
+  );
   const topScore = activePlayers.reduce((max, p) => Math.max(max, p.pts), 0);
 
-  const isMainMenu = !showIntro && activeGame === null && podium === null && champion === null;
+  const isMainMenu =
+    !showIntro && activeGame === null && podium === null && cupTournament === null;
   const currentToast = isMainMenu && toastQueue.length > 0 ? toastQueue[0] : null;
   const unlockedCount = Object.keys(achievements.unlocked).length;
 
-  // Teléfono aleatorio en el menú FNAF hasta que lo contesten
+  // Teléfono aleatorio en el menú FNAF hasta que lo contesten (espontáneo e impredecible)
   useEffect(() => {
     if (!isMainMenu || themeMode !== 'fnaf' || isFnafLocked) {
       setPhoneRinging(false);
       return;
     }
-    if (showModeModal || showAchievementsModal || showUpdateModal || phoneRinging) return;
+    if (showModeModal || showLanguageModal || showAchievementsModal || showUpdateModal || phoneRinging)
+      return;
 
-    const delayMs = 15000 + Math.floor(Math.random() * 10000);
+    const delayMs = 50000 + Math.floor(Math.random() * 70000);
     const t = window.setTimeout(() => {
       setPhoneSecondsLeft(14);
       setPhoneRinging(true);
@@ -665,30 +752,33 @@ export default function App() {
     themeMode,
     isFnafLocked,
     showModeModal,
+    showLanguageModal,
     showAchievementsModal,
     showUpdateModal,
     phoneRinging,
   ]);
 
-  // Alerta aleatoria de Shapeshifter en el menú Among Us
+  // Alerta aleatoria de Shapeshifter en el menú Among Us (espontánea e impredecible)
   useEffect(() => {
     if (!isMainMenu || themeMode !== 'amongus' || isAuLocked) {
       setAuAlertActive(false);
       return;
     }
-    if (showModeModal || showAchievementsModal || showUpdateModal || auAlertActive) return;
+    if (showModeModal || showLanguageModal || showAchievementsModal || showUpdateModal || auAlertActive)
+      return;
 
-    const delayMs = 15000 + Math.floor(Math.random() * 10000);
-    const t = window.setTimeout(() => {
+    const delayMs = 50000 + Math.floor(Math.random() * 70000);
+    const tmr = window.setTimeout(() => {
       setAuAlertSecondsLeft(14);
       setAuAlertActive(true);
     }, delayMs);
-    return () => window.clearTimeout(t);
+    return () => window.clearTimeout(tmr);
   }, [
     isMainMenu,
     themeMode,
     isAuLocked,
     showModeModal,
+    showLanguageModal,
     showAchievementsModal,
     showUpdateModal,
     auAlertActive,
@@ -773,8 +863,8 @@ export default function App() {
   }, [phoneRinging, auAlertActive, isMainMenu, themeMode, isFnafLocked, isAuLocked]);
 
   useEffect(() => {
-    if (!phoneRinging && !auAlertActive && topSel === 4) {
-      setTopSel(3);
+    if (!phoneRinging && !auAlertActive && topSel === 6) {
+      setTopSel(5);
     }
   }, [phoneRinging, auAlertActive, topSel]);
 
@@ -925,67 +1015,60 @@ export default function App() {
     setMusicEnabled(next);
   }, [musicOn]);
 
-  const buildChampionState = useCallback(
-    (snapshot: StagePlayer[], goal: number): ChampionState => {
-      const slice = snapshot
-        .slice(0, np)
-        .map((p, idx) => ({idx, name: p.name, pts: p.pts}))
-        .sort((a, b) => b.pts - a.pts);
-      const topPts = slice[0]?.pts ?? 0;
-      const winners = slice.filter((p) => p.pts === topPts);
-      return {
-        goal,
-        standings: slice,
-        winnerNames: winners.map((w) => w.name),
-        topPlayerIdx: slice[0]?.idx ?? 0,
-      };
-    },
-    [np],
+  const cycleDifficulty = useCallback(() => {
+    playControlClick();
+    setDifficulty((prev) => {
+      const idx = DIFFICULTY_ORDER.indexOf(prev);
+      return DIFFICULTY_ORDER[(idx + 1) % DIFFICULTY_ORDER.length];
+    });
+  }, []);
+
+  const visibleMenuItems = useMemo(
+    () =>
+      themeMode === 'fnaf'
+        ? [...CLASSIC_GAME_ITEMS, ...FNAF_EXCLUSIVE_ITEMS, ...SESSION_MENU_ITEMS]
+        : themeMode === 'amongus'
+          ? [...CLASSIC_GAME_ITEMS, ...AMONGUS_EXCLUSIVE_ITEMS, ...SESSION_MENU_ITEMS]
+          : [...CLASSIC_GAME_ITEMS, ...SESSION_MENU_ITEMS],
+    [themeMode],
   );
 
-  useEffect(() => {
-    if (champion === null || championLockSec <= 0) return;
-    const iv = window.setInterval(() => {
-      const rem = Math.max(0, Math.ceil((championUnlockAtRef.current - Date.now()) / 1000));
-      setChampionLockSec(rem);
-    }, 200);
-    return () => window.clearInterval(iv);
-  }, [champion, championLockSec]);
-
-  const openChampionScreen = useCallback(
-    (snapshot: StagePlayer[], goal: number) => {
-      const champ = buildChampionState(snapshot, goal);
-      const achRes = recordTournamentWinAchievement();
-      setAchievements(achRes.store);
-      queueUnlockedToasts(achRes.unlockedNow);
-      gameKeyHandlerRef.current = null;
-      setActiveGame(null);
-      setPodium(null);
-      if (themeMode === 'amongus') {
-        championUnlockAtRef.current = Date.now() + 3000;
-        setChampionLockSec(3);
-      } else {
-        championUnlockAtRef.current = 0;
-        setChampionLockSec(0);
-      }
-      setChampion(champ);
-      setBg(
-        themeMode === 'amongus'
-          ? '#000000'
-          : PLAYER_STAGE_COLORS[champ.topPlayerIdx % PLAYER_STAGE_COLORS.length],
-      );
-    },
-    [buildChampionState, queueUnlockedToasts, themeMode],
-  );
+  const cupGamePool = useMemo<CupGameDef[]>(() => {
+    return visibleMenuItems
+      .filter(
+        (item) =>
+          item.id !== 'players' &&
+          item.id !== 'tournament' &&
+          item.id !== 'reset' &&
+          item.id !== 'ruleta',
+      )
+      .map((item) => {
+        const override =
+          themeMode === 'fnaf' && item.id in FNAF_MENU_OVERRIDES
+            ? FNAF_MENU_OVERRIDES[item.id as MenuGameId]
+            : themeMode === 'amongus' && item.id in AMONGUS_MENU_OVERRIDES
+              ? AMONGUS_MENU_OVERRIDES[item.id as MenuGameId]
+              : null;
+        const localized = getLocalizedGameOverride(
+          item.id,
+          themeMode,
+          lang,
+          override ? override.name : item.name,
+          override ? override.desc : item.desc,
+        );
+        return {
+          id: item.id,
+          emoji: override ? override.emoji : item.emoji,
+          name: localized.name,
+          desc: localized.desc,
+        };
+      });
+  }, [visibleMenuItems, themeMode, lang]);
 
   const goMenu = useCallback(() => {
-    if (championTimerRef.current) window.clearTimeout(championTimerRef.current);
-    championUnlockAtRef.current = 0;
-    setChampionLockSec(0);
     gameKeyHandlerRef.current = null;
     setActiveGame(null);
     setPodium(null);
-    setChampion(null);
     setBg('#05070a');
   }, []);
 
@@ -997,7 +1080,7 @@ export default function App() {
       phoneRingAudioRef.current.currentTime = 0;
     }
     setPodium(null);
-    setChampion(null);
+    setCupTournament(null);
     setGameRunKey((k) => k + 1);
     setActiveGame('fnaf_balloon_boy');
   }, []);
@@ -1006,7 +1089,7 @@ export default function App() {
     playControlClick();
     setAuAlertActive(false);
     setPodium(null);
-    setChampion(null);
+    setCupTournament(null);
     setGameRunKey((k) => k + 1);
     setActiveGame('au_shapeshifter');
   }, []);
@@ -1049,31 +1132,6 @@ export default function App() {
     });
   }, [goMenu]);
 
-  const startNewTournament = useCallback(() => {
-    if (Date.now() < championUnlockAtRef.current) return;
-    setPlayers((prev) => prev.map((p) => ({...p, pts: 0})));
-    tone(520, 0.12);
-    goMenu();
-  }, [goMenu]);
-
-  const continueFreePlay = useCallback(() => {
-    if (Date.now() < championUnlockAtRef.current) return;
-    setTournamentGoal(0);
-    tone(440, 0.1);
-    goMenu();
-  }, [goMenu]);
-
-  const classicForThemed = CLASSIC_GAME_ITEMS.filter(
-    (item) => !THEMED_HIDDEN_AI_GAMES.has(item.id as MenuGameId),
-  );
-
-  const visibleMenuItems =
-    themeMode === 'fnaf'
-      ? [...classicForThemed, ...FNAF_EXCLUSIVE_ITEMS, ...SESSION_MENU_ITEMS]
-      : themeMode === 'amongus'
-        ? [...classicForThemed, ...AMONGUS_EXCLUSIVE_ITEMS, ...SESSION_MENU_ITEMS]
-        : [...CLASSIC_GAME_ITEMS, ...SESSION_MENU_ITEMS];
-
   useEffect(() => {
     setMenuSel((prev) => Math.min(prev, visibleMenuItems.length - 1));
   }, [visibleMenuItems.length]);
@@ -1089,10 +1147,9 @@ export default function App() {
       }
       if (item.id === 'tournament') {
         playControlClick();
-        setTournamentGoal((prev) => {
-          const i = TOURNAMENT_GOALS.indexOf(prev);
-          return TOURNAMENT_GOALS[(i + 1) % TOURNAMENT_GOALS.length];
-        });
+        setPodium(null);
+        setActiveGame(null);
+        setCupTournament(createInitialCupState(Math.max(2, np), cupGamePool));
         return;
       }
       if (item.id === 'reset') {
@@ -1102,11 +1159,19 @@ export default function App() {
       }
       playControlClick();
       setPodium(null);
-      setChampion(null);
       setGameRunKey((k) => k + 1);
       setActiveGame(item.id);
     },
-    [visibleMenuItems],
+    [visibleMenuItems, np, cupGamePool],
+  );
+
+  const handleCardClick = useCallback(
+    (idx: number) => {
+      setMenuFocusZone('grid');
+      setMenuSel(idx);
+      activateMenuItem(idx);
+    },
+    [activateMenuItem],
   );
 
   const handleFinish = useCallback(
@@ -1121,6 +1186,70 @@ export default function App() {
       const ptsGiven = rankIndices.map((_, r) =>
         customPtsGiven ? (customPtsGiven[r] ?? 0) : rewardScale[Math.min(r, 5)],
       );
+
+      const activeCup = cupTournamentRef.current;
+      if (activeCup && activeCup.phase === 'HUB') {
+        const deltas = Array(activeCup.playerCount).fill(0);
+        rankIndices.forEach((pIdx, rankPos) => {
+          if (pIdx >= 0 && pIdx < activeCup.playerCount) {
+            deltas[pIdx] = ptsGiven[rankPos] ?? 0;
+          }
+        });
+        const nextScores = activeCup.scores.map((s, i) => s + (deltas[i] ?? 0));
+        const nextMedals = activeCup.medals.map((m) => ({...m}));
+        if (rankIndices[0] !== undefined && nextMedals[rankIndices[0]]) {
+          nextMedals[rankIndices[0]].gold += 1;
+        }
+        if (rankIndices[1] !== undefined && nextMedals[rankIndices[1]]) {
+          nextMedals[rankIndices[1]].silver += 1;
+        }
+        if (rankIndices[2] !== undefined && nextMedals[rankIndices[2]]) {
+          nextMedals[rankIndices[2]].bronze += 1;
+        }
+        const nextRound = activeCup.currentRound + 1;
+        const isFinal = nextRound >= activeCup.totalRounds;
+
+        const matchAch = recordMatchAchievement({
+          gameId: activeGameRef.current,
+          winnerIdx: rankIndices[0],
+          playerCount: activeCup.playerCount,
+        });
+        let latestStore = matchAch.store;
+        const unlockedBatch = [...matchAch.unlockedNow];
+        if (isFinal) {
+          const cupAch = recordTournamentWinAchievement();
+          latestStore = cupAch.store;
+          unlockedBatch.push(...cupAch.unlockedNow);
+        }
+        setAchievements(latestStore);
+        queueUnlockedToasts(unlockedBatch);
+
+        tone(523, 0.14);
+        window.setTimeout(() => tone(isFinal ? 880 : 784, 0.3), 150);
+
+        setCupTournament({
+          ...activeCup,
+          phase: isFinal ? 'CHAMPION' : 'HUB',
+          currentRound: nextRound,
+          scores: nextScores,
+          lastDeltas: deltas,
+          medals: nextMedals,
+          history: [
+            ...activeCup.history,
+            {
+              gameId: activeGameRef.current ?? '',
+              winnerIdx: rankIndices[0] ?? 0,
+              deltas,
+            },
+          ],
+        });
+        gameKeyHandlerRef.current = null;
+        setActiveGame(null);
+        setPodium(null);
+        setBg('#05070a');
+        return;
+      }
+
       const nextPlayers = playersRef.current.map((p) => ({...p}));
       rankIndices.forEach((playerIdx, rankPos) => {
         if (nextPlayers[playerIdx]) {
@@ -1129,10 +1258,6 @@ export default function App() {
       });
       playersRef.current = nextPlayers;
       setPlayers(nextPlayers);
-
-      const tournamentReached =
-        tournamentGoal > 0 &&
-        nextPlayers.slice(0, np).some((p) => p.pts >= tournamentGoal);
 
       const achRes = recordMatchAchievement({
         gameId: activeGameRef.current,
@@ -1145,9 +1270,9 @@ export default function App() {
       tone(523, 0.14);
       window.setTimeout(() => tone(784, 0.32), 160);
       setBg('#05070a');
-      setPodium({title, rankIndices, lines, ptsGiven, tournamentReached, onAgain});
+      setPodium({title, rankIndices, lines, ptsGiven, onAgain});
     },
-    [np, tournamentGoal, queueUnlockedToasts],
+    [np, queueUnlockedToasts],
   );
 
   const handleAwardSingle = useCallback(
@@ -1165,15 +1290,8 @@ export default function App() {
       });
       setAchievements(achRes.store);
       queueUnlockedToasts(achRes.unlockedNow);
-
-      if (tournamentGoal > 0 && (nextPlayers[playerIdx]?.pts ?? 0) >= tournamentGoal) {
-        if (championTimerRef.current) window.clearTimeout(championTimerRef.current);
-        championTimerRef.current = window.setTimeout(() => {
-          openChampionScreen(nextPlayers, tournamentGoal);
-        }, 550);
-      }
     },
-    [np, tournamentGoal, openChampionScreen, queueUnlockedToasts],
+    [np, queueUnlockedToasts],
   );
 
   // Global TV Remote / Keyboard listener
@@ -1243,6 +1361,28 @@ export default function App() {
       e.preventDefault();
       if (k === 'ok' && e.repeat) return;
 
+      if (showLanguageModal && isMainMenu) {
+        if (k === 'right') {
+          playControlClick();
+          setLangSel((s) => (s + 1) % LANGUAGE_OPTIONS.length);
+        } else if (k === 'left') {
+          playControlClick();
+          setLangSel((s) => (s + LANGUAGE_OPTIONS.length - 1) % LANGUAGE_OPTIONS.length);
+        } else if (k === 'down' || k === 'up') {
+          playControlClick();
+          setLangSel((s) => (s + 2) % LANGUAGE_OPTIONS.length);
+        } else if (k === 'ok') {
+          playControlClick();
+          const chosen = LANGUAGE_OPTIONS[langSel];
+          if (chosen) setLang(chosen.code);
+          setShowLanguageModal(false);
+        } else if (k === 'back') {
+          playControlClick();
+          setShowLanguageModal(false);
+        }
+        return;
+      }
+
       if (showModeModal && isMainMenu) {
         if (k === 'right' || k === 'down') {
           playControlClick();
@@ -1298,38 +1438,22 @@ export default function App() {
       }
 
       if (k === 'back') {
-        if (champion !== null) {
-          if (Date.now() < championUnlockAtRef.current) return;
-          tone(300, 0.08);
-          startNewTournament();
-          return;
-        }
         if (activeGame !== null || podium !== null) {
           tone(300, 0.08);
           goMenu();
+          return;
         }
-        return;
-      }
-
-      if (champion !== null) {
-        if (Date.now() < championUnlockAtRef.current) return;
-        if (k === 'ok') {
-          startNewTournament();
-        } else if (k === 'up') {
-          continueFreePlay();
+        if (cupTournament !== null) {
+          gameKeyHandlerRef.current?.(k);
         }
         return;
       }
 
       if (podium) {
         if (k === 'ok') {
-          if (podium.tournamentReached && tournamentGoal > 0) {
-            openChampionScreen(playersRef.current, tournamentGoal);
-          } else {
-            tone(380, 0.05);
-            goMenu();
-          }
-        } else if (k === 'up' && !podium.tournamentReached) {
+          tone(380, 0.05);
+          goMenu();
+        } else if (k === 'up') {
           tone(520, 0.08);
           const replay = podium.onAgain;
           setPodium(null);
@@ -1339,7 +1463,7 @@ export default function App() {
         return;
       }
 
-      if (activeGame !== null) {
+      if (activeGame !== null || cupTournament !== null) {
         gameKeyHandlerRef.current?.(k);
         return;
       }
@@ -1350,25 +1474,27 @@ export default function App() {
       const hasPhoneBtn = phoneRinging && themeMode === 'fnaf';
       const hasAuAlertBtn = auAlertActive && themeMode === 'amongus';
       const hasEventBtn = hasPhoneBtn || hasAuAlertBtn;
-      const topCount = hasEventBtn ? 5 : 4;
-      const mapColToTop = (col: number): 0 | 1 | 2 | 3 | 4 => {
+      const topCount = hasEventBtn ? 7 : 6;
+      const mapColToTop = (col: number): 0 | 1 | 2 | 3 | 4 | 5 | 6 => {
         if (cols <= 3) {
-          if (hasEventBtn && col >= 2) return 4;
-          return col === 0 ? 0 : col === 1 ? 1 : 2;
+          if (hasEventBtn && col >= 2) return 6;
+          return col === 0 ? 0 : col === 1 ? 1 : 3;
         }
-        if (hasEventBtn && col >= 5) return 4;
+        if (hasEventBtn && col >= 5) return 6;
         if (col === 0) return 0;
-        if (col <= 2) return 1;
-        if (col === 3) return 2;
-        return 3;
+        if (col === 1) return 1;
+        if (col === 2) return 2;
+        if (col === 3) return 3;
+        if (col === 4) return 4;
+        return 5;
       };
 
       if (menuFocusZone === 'top') {
         if (k === 'right') {
-          setTopSel((t) => ((t + 1) % topCount) as 0 | 1 | 2 | 3 | 4);
+          setTopSel((s) => ((s + 1) % topCount) as 0 | 1 | 2 | 3 | 4 | 5 | 6);
           playControlClick();
         } else if (k === 'left') {
-          setTopSel((t) => ((t + topCount - 1) % topCount) as 0 | 1 | 2 | 3 | 4);
+          setTopSel((s) => ((s + topCount - 1) % topCount) as 0 | 1 | 2 | 3 | 4 | 5 | 6);
           playControlClick();
         } else if (k === 'down') {
           setMenuFocusZone('grid');
@@ -1380,9 +1506,9 @@ export default function App() {
           setMenuSel((s) => Math.min(total - 1, lastRowStart + (s % cols)));
           playControlClick();
         } else if (k === 'ok') {
-          if (topSel === 4 && hasPhoneBtn) {
+          if (topSel === 6 && hasPhoneBtn) {
             answerPhone();
-          } else if (topSel === 4 && hasAuAlertBtn) {
+          } else if (topSel === 6 && hasAuAlertBtn) {
             answerAuAlert();
           } else if (topSel === 0) {
             playControlClick();
@@ -1392,6 +1518,13 @@ export default function App() {
             setModeSel(themeToModeSel(themeMode));
             setShowModeModal(true);
           } else if (topSel === 2) {
+            cycleDifficulty();
+          } else if (topSel === 3) {
+            playControlClick();
+            const curIdx = LANGUAGE_OPTIONS.findIndex((o) => o.code === lang);
+            setLangSel(curIdx >= 0 ? curIdx : 0);
+            setShowLanguageModal(true);
+          } else if (topSel === 4) {
             playControlClick();
             setShowAchievementsModal(true);
           } else {
@@ -1433,6 +1566,9 @@ export default function App() {
   }, [
     showIntro,
     isMainMenu,
+    showLanguageModal,
+    langSel,
+    lang,
     showAchievementsModal,
     showUpdateModal,
     updatePhase,
@@ -1452,37 +1588,37 @@ export default function App() {
     dismissIntro,
     activeGame,
     podium,
-    champion,
+    cupTournament,
     menuSel,
     menuFocusZone,
     topSel,
-    tournamentGoal,
     goMenu,
     activateMenuItem,
-    openChampionScreen,
-    startNewTournament,
-    continueFreePlay,
     toggleMusic,
+    cycleDifficulty,
   ]);
 
+  const gamePlayers = useMemo(() => {
+    if (cupTournament) {
+      return Array.from({length: cupTournament.playerCount}, (_, idx) => ({
+        id: idx,
+        name: getPlayerLabel(idx, lang),
+        pts: cupTournament.scores[idx] ?? 0,
+      }));
+    }
+    return activePlayers;
+  }, [cupTournament, activePlayers, lang]);
+
   const commonProps = {
-    players: activePlayers,
+    players: gamePlayers,
     onFinish: handleFinish,
     onExit: goMenu,
     registerKeyHandler,
     setBg,
     themeMode,
+    difficulty,
+    lang,
   };
-
-  const stageStyle = {
-    backgroundColor: bg,
-    '--fnaf-bg': `url(${fnafBgImg})`,
-    '--fnaf-tile': `url(${fnafTileImg})`,
-    '--fnaf-panel': `url(${fnafPanelImg})`,
-    '--amongus-bg': `url(${amongusBgImg})`,
-    '--amongus-tile': `url(${amongusTileImg})`,
-    '--amongus-panel': `url(${amongusPanelImg})`,
-  } as CSSProperties;
 
   return (
     <div
@@ -1491,15 +1627,8 @@ export default function App() {
         themeMode === 'fnaf' ? 'theme-fnaf' : themeMode === 'amongus' ? 'theme-amongus' : ''
       }`}
       data-game-bg={bg === '#05070a' ? 'default' : 'active'}
-      style={stageStyle}
+      style={{backgroundColor: bg}}
     >
-      {themeMode === 'fnaf' && (
-        <>
-          <div className="fnaf-crt-overlay" aria-hidden="true" />
-          <div className="fnaf-cam-corners" aria-hidden="true" />
-        </>
-      )}
-      {themeMode === 'amongus' && <div className="amongus-star-overlay" aria-hidden="true" />}
 
       {/* INTRO AL ABRIR LA APP */}
       {showIntro && (
@@ -1517,7 +1646,7 @@ export default function App() {
             ))}
           </div>
           <div className="intro-logo">
-            MINIJUEGOS{' '}
+            Cgames
             <span
               className={
                 themeMode === 'fnaf'
@@ -1527,20 +1656,20 @@ export default function App() {
                     : 'text-[#93c5fd]'
               }
             >
-              TV PARTY
+              TVPARTY
             </span>
           </div>
           <div className="intro-tagline">
             {themeMode === 'fnaf'
-              ? '22 minijuegos · Modo FNAF'
+              ? t.introFnaf
               : themeMode === 'amongus'
-                ? '21 minijuegos · Modo Among Us'
-                : '20 minijuegos · 1 solo control · en familia'}
+                ? t.introAmongUs
+                : t.introClassic}
           </div>
           <div className="intro-bar-track">
             <div className="intro-bar-fill" />
           </div>
-          <div className="intro-skip">Presiona OK para entrar</div>
+          <div className="intro-skip">{t.introSkip}</div>
         </div>
       )}
 
@@ -1554,7 +1683,7 @@ export default function App() {
         >
           <div>
             <div className="stage-toast-kicker" style={{color: '#fca5a5'}}>
-              {lockNotice ? 'Acceso restringido' : 'Alerta sin respuesta'}
+              {lockNotice ? t.toastRestricted : t.toastMissedAlert}
             </div>
             <div className="stage-toast-title">
               {(lockNotice ?? missedCallNotice)?.title}
@@ -1568,9 +1697,13 @@ export default function App() {
         <div key={currentToast.id} className="stage-toast" role="status" aria-live="polite">
           <div className="stage-toast-emoji">{currentToast.emoji}</div>
           <div>
-            <div className="stage-toast-kicker">Logro desbloqueado</div>
-            <div className="stage-toast-title">{currentToast.title}</div>
-            <div className="stage-toast-desc">{currentToast.desc}</div>
+            <div className="stage-toast-kicker">{t.achUnlockedKicker}</div>
+            <div className="stage-toast-title">
+              {getAchievementText(currentToast.id, lang).title}
+            </div>
+            <div className="stage-toast-desc">
+              {getAchievementText(currentToast.id, lang).desc}
+            </div>
           </div>
         </div>
       )}
@@ -1579,7 +1712,7 @@ export default function App() {
       {isMainMenu && (
         <div className="stage-menu">
           <div className="stage-title">
-            MINIJUEGOS{' '}
+            Cgames
             <b
               className={
                 themeMode === 'fnaf'
@@ -1589,18 +1722,17 @@ export default function App() {
                     : 'text-[#93c5fd]'
               }
             >
-              TV PARTY
+              TVPARTY
             </b>
           </div>
           <div className="stage-subt">
             <span>
               {themeMode === 'fnaf'
-                ? '22 minijuegos (7 exclusivos FNAF)'
+                ? `27 ${t.minigamesLabel} (${t.exclusivesFnaf})`
                 : themeMode === 'amongus'
-                  ? '21 minijuegos (6 exclusivos Among Us)'
-                  : '20 minijuegos'}{' '}
-              · {np} {np === 1 ? 'jugador' : 'jugadores'} ·{' '}
-              {tournamentGoal > 0 ? `Torneo a ${tournamentGoal} pts` : 'Modo libre'}
+                  ? `26 ${t.minigamesLabel} (${t.exclusivesAmongUs})`
+                  : `20 ${t.minigamesLabel}`}{' '}
+              · {np} {np === 1 ? t.playerSingular : t.playerPlural} · {t.freeModeTag}
             </span>
             <button
               type="button"
@@ -1612,7 +1744,7 @@ export default function App() {
               }}
               className={`stage-top-btn ${menuFocusZone === 'top' && topSel === 0 ? 'sel' : ''}`}
             >
-              {musicOn ? '♪ Música: SÍ' : '🔇 Música: NO'}
+              {musicOn ? t.musicOn : t.musicOff}
             </button>
             <button
               type="button"
@@ -1626,56 +1758,88 @@ export default function App() {
               className={`stage-top-btn ${menuFocusZone === 'top' && topSel === 1 ? 'sel' : ''}`}
             >
               {themeMode === 'fnaf'
-                ? '🐻 Modo: FNAF'
+                ? t.modeFnafBtn
                 : themeMode === 'amongus'
-                  ? '🚀 Modo: Among Us'
-                  : '🎨 Modo: Clásico'}
+                  ? t.modeAmongUsBtn
+                  : t.modeClassicBtn}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setMenuFocusZone('top');
+                setTopSel(2);
+                cycleDifficulty();
+              }}
+              className={`stage-top-btn diff-${difficulty} ${
+                menuFocusZone === 'top' && topSel === 2 ? 'sel' : ''
+              }`}
+            >
+              {DIFFICULTY_META[difficulty].emoji} {t.diffPrefix}:{' '}
+              {getDifficultyLabel(difficulty, lang)}
             </button>
             <button
               type="button"
               onClick={() => {
                 playControlClick();
                 setMenuFocusZone('top');
-                setTopSel(2);
+                setTopSel(3);
+                const curIdx = LANGUAGE_OPTIONS.findIndex((o) => o.code === lang);
+                setLangSel(curIdx >= 0 ? curIdx : 0);
+                setShowLanguageModal(true);
+              }}
+              className={`stage-top-btn ${menuFocusZone === 'top' && topSel === 3 ? 'sel' : ''}`}
+            >
+              🌐 {t.langPrefix}: {lang.toUpperCase()}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                playControlClick();
+                setMenuFocusZone('top');
+                setTopSel(4);
                 setShowAchievementsModal(true);
               }}
-              className={`stage-top-btn ach ${menuFocusZone === 'top' && topSel === 2 ? 'sel' : ''}`}
+              className={`stage-top-btn ach ${menuFocusZone === 'top' && topSel === 4 ? 'sel' : ''}`}
             >
-              🏅 Logros: {unlockedCount}/{ACHIEVEMENTS_LIST.length}
+              🏅 {t.achievementsBtn}: {unlockedCount}/{ACHIEVEMENTS_LIST.length}
             </button>
             <button
               type="button"
               onClick={() => {
                 setMenuFocusZone('top');
-                setTopSel(3);
+                setTopSel(5);
                 handleOpenUpdateModal();
               }}
               className={`stage-top-btn ${availableUpdate ? 'border-emerald-400/70 text-emerald-300' : ''} ${
-                menuFocusZone === 'top' && topSel === 3 ? 'sel' : ''
+                menuFocusZone === 'top' && topSel === 5 ? 'sel' : ''
               }`}
             >
               {availableUpdate
-                ? `⬇️ Actualizar v${availableUpdate.versionName}`
+                ? `⬇️ ${t.updateBtn} v${availableUpdate.versionName}`
                 : `🔄 v${tvVersionInfo?.versionName || '1.0.0'}`}
             </button>
             {phoneRinging && themeMode === 'fnaf' && (
               <button
                 type="button"
                 onClick={answerPhone}
-                className={`stage-top-btn phone ${menuFocusZone === 'top' && topSel === 4 ? 'sel' : ''}`}
+                className={`stage-top-btn phone ${menuFocusZone === 'top' && topSel === 6 ? 'sel' : ''}`}
               >
                 <FnafPhoneSvg className="h-[2.6vh] w-[2.6vh]" />
-                <span>¡Contestar! ({phoneSecondsLeft}s)</span>
+                <span>
+                  {t.answerPhone} ({phoneSecondsLeft}s)
+                </span>
               </button>
             )}
             {auAlertActive && themeMode === 'amongus' && (
               <button
                 type="button"
                 onClick={answerAuAlert}
-                className={`stage-top-btn phone ${menuFocusZone === 'top' && topSel === 4 ? 'sel' : ''}`}
+                className={`stage-top-btn phone ${menuFocusZone === 'top' && topSel === 6 ? 'sel' : ''}`}
               >
                 <ShapeshifterBadgeSvg className="h-[2.6vh] w-[2.6vh]" />
-                <span>¡Shapeshifter! ({auAlertSecondsLeft}s)</span>
+                <span>
+                  {t.answerShapeshifter} ({auAlertSecondsLeft}s)
+                </span>
               </button>
             )}
           </div>
@@ -1692,65 +1856,38 @@ export default function App() {
                     ? AMONGUS_MENU_OVERRIDES[item.id as MenuGameId]
                     : null;
               const emoji = override ? override.emoji : item.emoji;
-              let label = override ? override.name : item.name;
-              let sub = override ? override.desc : item.desc;
+              const rawName = override ? override.name : item.name;
+              const rawDesc = override ? override.desc : item.desc;
+              const localized = getLocalizedGameOverride(item.id, themeMode, lang, rawName, rawDesc);
+              let label = localized.name;
+              let sub = localized.desc;
               if (item.id === 'players') {
                 label =
                   themeMode === 'fnaf'
-                    ? `Guardias: ${np}`
+                    ? t.playersFnaf(np)
                     : themeMode === 'amongus'
-                      ? `Tripulantes: ${np}`
-                      : `Jugadores: ${np}`;
-              }
-              if (item.id === 'tournament') {
-                label = tournamentGoal > 0 ? `Meta: ${tournamentGoal} pts` : 'Modo: Libre';
-                sub = tournamentGoal > 0 ? 'Torneo activo' : 'Sin límite';
+                      ? t.playersAmongUs(np)
+                      : t.playersClassic(np);
+              } else if (item.id === 'tournament') {
+                label = t.tournamentCardTitle;
+                sub = t.tournamentCardDesc;
+              } else if (item.id === 'reset') {
+                label = t.resetCardTitle;
+                sub = t.resetCardDesc;
               }
               return (
-                <div
+                <StageMenuCard
                   key={item.id}
-                  onClick={() => {
-                    setMenuFocusZone('grid');
-                    setMenuSel(idx);
-                    activateMenuItem(idx);
-                  }}
-                  className={`stage-card ${item.fnafExclusive ? 'fnaf-exclusive' : ''} ${
-                    item.amongusExclusive ? 'amongus-exclusive' : ''
-                  } ${menuFocusZone === 'grid' && menuSel === idx ? 'sel' : ''}`}
-                >
-                  {item.fnafExclusive && <span className="fnaf-ex-tag">EXCLUSIVO</span>}
-                  {item.amongusExclusive && <span className="amongus-ex-tag">NAVE</span>}
-                  <div className="e">
-                    {item.id === 'fnaf_puppet' ? (
-                      <img
-                        src={puppetCardImg}
-                        alt="Caja de Puppet"
-                        referrerPolicy="no-referrer"
-                        className="mx-auto h-[4.1vh] w-[4.1vh] rounded-[0.75vh] border border-amber-400/50 object-cover shadow-sm"
-                      />
-                    ) : item.id === 'fnaf_camaras' ? (
-                      <div className="mx-auto h-[4.1vh] w-[6.4vh] overflow-hidden rounded-[0.65vh] border border-amber-400/50 bg-black">
-                        <FnafCamSceneSvg camId="CAM 1A" actor="freddy" threatPct={25} flashed={false} />
-                      </div>
-                    ) : item.id === 'au_expulsion' ? (
-                      <CrewmateSvg
-                        bodyColor="#dc2626"
-                        shadeColor="#991b1b"
-                        className="mx-auto h-[4.1vh] w-[4.1vh]"
-                      />
-                    ) : item.id === 'au_admin' ? (
-                      <AdminCrewIconSvg className="mx-auto h-[4.1vh] w-[3.6vh]" />
-                    ) : item.id === 'au_distribuidor' ? (
-                      <DistributorRingBadgeSvg className="mx-auto h-[4.1vh] w-[4.1vh]" />
-                    ) : item.id === 'au_comms' ? (
-                      <CommsWaveBadgeSvg className="mx-auto h-[3.9vh] w-[5.8vh]" />
-                    ) : (
-                      emoji
-                    )}
-                  </div>
-                  <div className="t">{label}</div>
-                  <div className="d">{sub}</div>
-                </div>
+                  item={item}
+                  idx={idx}
+                  selected={menuFocusZone === 'grid' && menuSel === idx}
+                  emoji={emoji}
+                  label={label}
+                  sub={sub}
+                  exclusiveLabel={t.exclusiveTag}
+                  shipLabel={t.shipTag}
+                  onSelect={handleCardClick}
+                />
               );
             })}
           </div>
@@ -1758,7 +1895,6 @@ export default function App() {
           <div className="stage-chips">
             {activePlayers.map((p, i) => {
               const isLeader = topScore > 0 && p.pts === topScore;
-              const pct = tournamentGoal > 0 ? Math.min(100, Math.round((p.pts / tournamentGoal) * 100)) : 0;
               return (
                 <span
                   key={p.id}
@@ -1767,18 +1903,69 @@ export default function App() {
                 >
                   {isLeader ? '👑 ' : ''}
                   {p.name}: {p.pts}
-                  {tournamentGoal > 0 ? `/${tournamentGoal}` : ''}
-                  {tournamentGoal > 0 && <span className="stage-chip-bar" style={{width: `${pct}%`}} />}
                 </span>
               );
             })}
           </div>
           <div className="stage-legend">
             {phoneRinging && themeMode === 'fnaf'
-              ? `¡Suena el teléfono (${phoneSecondsLeft}s)! Contesta con ▲ + OK o todos pierden -2 pts`
+              ? t.legendPhone(phoneSecondsLeft)
               : auAlertActive && themeMode === 'amongus'
-                ? `¡Shapeshifter detectado (${auAlertSecondsLeft}s)! Entra con ▲ + OK o todos pierden -2 pts`
-                : '◀▶▲▼ Mover · OK Seleccionar · Atrás Volver'}
+                ? t.legendAuAlert(auAlertSecondsLeft)
+                : t.legendDefault}
+          </div>
+        </div>
+      )}
+
+      {/* APARTADO DE IDIOMAS */}
+      {isMainMenu && showLanguageModal && (
+        <div
+          className="stage-ach-overlay cursor-pointer"
+          onClick={() => {
+            playControlClick();
+            setShowLanguageModal(false);
+          }}
+        >
+          <div className="stage-mode-panel max-w-[54rem]" onClick={(e) => e.stopPropagation()}>
+            <div className="stage-title" style={{fontSize: 'clamp(1.5rem, 4.2vh, 2.5rem)'}}>
+              {t.langModalTitle}
+            </div>
+            <div className="stage-subt" style={{marginBottom: 0}}>
+              {t.langModalSub}
+            </div>
+            <div className="stage-lang-grid">
+              {LANGUAGE_OPTIONS.map((opt, idx) => {
+                const isSelected = langSel === idx;
+                const isActive = lang === opt.code;
+                return (
+                  <button
+                    key={opt.code}
+                    type="button"
+                    onClick={() => {
+                      playControlClick();
+                      setLangSel(idx);
+                      setLang(opt.code);
+                      setShowLanguageModal(false);
+                    }}
+                    className={`stage-lang-card ${isSelected ? 'sel' : ''} ${
+                      isActive ? 'active' : ''
+                    }`}
+                  >
+                    <span className="stage-lang-flag">{opt.flag}</span>
+                    <div>
+                      <div className="stage-lang-name">{opt.nativeName}</div>
+                      <div className="stage-lang-sub">{opt.subtitle}</div>
+                    </div>
+                    <span className="stage-lang-badge">
+                      {isActive ? '✓' : opt.short}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="stage-hint" style={{marginTop: '2.4vh'}}>
+              {t.langHint}
+            </div>
           </div>
         </div>
       )}
@@ -1794,10 +1981,10 @@ export default function App() {
         >
           <div className="stage-mode-panel" onClick={(e) => e.stopPropagation()}>
             <div className="stage-title" style={{fontSize: 'clamp(1.5rem, 4.2vh, 2.5rem)'}}>
-              🎨 ELEGIR MODO DE JUEGO
+              {t.modeModalTitle}
             </div>
             <div className="stage-subt" style={{marginBottom: 0}}>
-              Cada modo cambia texturas, temática y agrega juegos exclusivos
+              {t.modeModalSub}
             </div>
             <div className="stage-mode-grid">
               <button
@@ -1811,21 +1998,31 @@ export default function App() {
                 className={`stage-mode-card ${modeSel === 0 ? 'sel' : ''}`}
               >
                 <div
-                  className="stage-mode-preview"
+                  className="stage-mode-preview flex items-center justify-center"
                   style={{
                     background:
-                      'radial-gradient(circle at 30% 30%, rgba(59, 130, 246, 0.35), #0f172a 70%)',
+                      'radial-gradient(circle at 30% 30%, rgba(59, 130, 246, 0.36), #0f172a 75%)',
                   }}
-                />
+                >
+                  <div className="flex items-center gap-[1vw]">
+                    {PLAYER_STAGE_COLORS.slice(0, 4).map((c) => (
+                      <span
+                        key={c}
+                        className="h-[2.6vh] w-[2.6vh] rounded-full shadow"
+                        style={{backgroundColor: c}}
+                      />
+                    ))}
+                  </div>
+                </div>
                 <div className="stage-mode-body">
                   <div className="font-bold text-white text-[2.5vh] leading-tight">
-                    📺 Clásico TV Party
+                    {t.modeClassicTitle}
                   </div>
                   <div className="text-slate-300 mt-1.5 text-[1.7vh] leading-snug">
-                    20 minijuegos originales para toda la familia con estética limpia minimalista.
+                    {t.modeClassicDesc}
                   </div>
                   <div className="stage-mode-badge">
-                    {themeMode === 'classic' ? '✓ Activo actualmente' : 'OK para activar'}
+                    {themeMode === 'classic' ? t.modeActiveNow : t.modeActivateHint}
                   </div>
                 </div>
               </button>
@@ -1847,34 +2044,35 @@ export default function App() {
                 }`}
               >
                 <div
-                  className="stage-mode-preview"
+                  className="stage-mode-preview flex items-center justify-center overflow-hidden"
                   style={{
-                    backgroundImage: `linear-gradient(180deg, rgba(10,8,12,0.2), rgba(10,8,12,0.55)), url(${fnafBgImg})`,
+                    background: 'linear-gradient(180deg, #1b0e14 0%, #09070c 100%)',
                   }}
                 >
+                  <div className="h-[11vh] w-[17vh] overflow-hidden rounded-[0.8vh] border border-amber-400/50 bg-black">
+                    <FnafCamSceneSvg camId="CAM 1A" actor="freddy" threatPct={25} flashed={false} />
+                  </div>
                   <div
-                    className="absolute bottom-0 inset-x-0 h-[3vh]"
+                    className="absolute bottom-0 inset-x-0 h-[1.1vh]"
                     style={{
-                      backgroundImage: `url(${fnafTileImg})`,
-                      backgroundSize: 'auto 6vh',
-                      backgroundRepeat: 'repeat-x',
-                      borderTop: '0.2vh solid rgba(245, 158, 11, 0.45)',
+                      background:
+                        'linear-gradient(90deg, rgba(185,28,28,0.7), rgba(245,158,11,0.8), rgba(185,28,28,0.7))',
                     }}
                   />
                 </div>
                 <div className="stage-mode-body">
                   <div className="font-bold text-white text-[2.5vh] leading-tight">
-                    🐻 Pizzería FNAF
+                    {t.modeFnafTitle}
                   </div>
                   <div className="text-slate-300 mt-1.5 text-[1.7vh] leading-snug">
-                    Texturas CRT, 15 minijuegos clásicos/IA tematizados + 7 juegos EXCLUSIVOS de FNAF (Cámaras, Puppet y más).
+                    {t.modeFnafDesc}
                   </div>
                   <div className="stage-mode-badge">
                     {isFnafLocked
-                      ? `🔒 Bloqueado por Balloon Boy (${formatLockTime(fnafLockRemainingSec)})`
+                      ? t.modeLockedFnaf(formatLockTime(fnafLockRemainingSec))
                       : themeMode === 'fnaf'
-                        ? '✓ Activo actualmente'
-                        : 'OK para activar'}
+                        ? t.modeActiveNow
+                        : t.modeActivateHint}
                   </div>
                 </div>
               </button>
@@ -1896,44 +2094,43 @@ export default function App() {
                 }`}
               >
                 <div
-                  className="stage-mode-preview"
+                  className="stage-mode-preview flex items-center justify-center"
                   style={{
-                    backgroundImage: `linear-gradient(180deg, rgba(4,12,24,0.18), rgba(4,12,24,0.58)), url(${amongusBgImg})`,
+                    background:
+                      'radial-gradient(circle at 35% 35%, rgba(34, 211, 238, 0.24), #040b18 75%)',
                   }}
                 >
-                  <div className="absolute right-[1vw] top-[1.2vh] flex items-center gap-[0.6vw]">
-                    <CrewmateSvg bodyColor="#dc2626" shadeColor="#991b1b" className="h-[6.2vh] w-[6.2vh]" />
-                    <EmergencyButtonSvg className="h-[5.4vh] w-[5.4vh]" />
+                  <div className="flex items-center gap-[1.1vw]">
+                    <CrewmateSvg bodyColor="#dc2626" shadeColor="#991b1b" className="h-[7.2vh] w-[7.2vh]" />
+                    <EmergencyButtonSvg className="h-[6.2vh] w-[6.2vh]" />
                   </div>
                   <div
-                    className="absolute bottom-0 inset-x-0 h-[3vh]"
+                    className="absolute bottom-0 inset-x-0 h-[1.1vh]"
                     style={{
-                      backgroundImage: `url(${amongusTileImg})`,
-                      backgroundSize: 'auto 6vh',
-                      backgroundRepeat: 'repeat-x',
-                      borderTop: '0.2vh solid rgba(34, 211, 238, 0.45)',
+                      background:
+                        'linear-gradient(90deg, rgba(14,116,144,0.6), rgba(34,211,238,0.85), rgba(14,116,144,0.6))',
                     }}
                   />
                 </div>
                 <div className="stage-mode-body">
                   <div className="font-bold text-white text-[2.4vh] leading-tight">
-                    🚀 Nave Among Us
+                    {t.modeAmongUsTitle}
                   </div>
                   <div className="text-slate-300 mt-1.5 text-[1.65vh] leading-snug">
-                    Estación espacial Skeld, 15 minijuegos tematizados + 6 tareas EXCLUSIVAS (Reunión, Mapa Admin, Tareas Falsas, Luces y más).
+                    {t.modeAmongUsDesc}
                   </div>
                   <div className="stage-mode-badge">
                     {isAuLocked
-                      ? `🔒 Bloqueado por Shapeshifter (${formatLockTime(auLockRemainingSec)})`
+                      ? t.modeLockedAu(formatLockTime(auLockRemainingSec))
                       : themeMode === 'amongus'
-                        ? '✓ Activo actualmente'
-                        : 'OK para activar'}
+                        ? t.modeActiveNow
+                        : t.modeActivateHint}
                   </div>
                 </div>
               </button>
             </div>
             <div className="stage-hint" style={{marginTop: '2.4vh'}}>
-              ◀▶ Elegir modo · OK Aplicar · Atrás Cancelar
+              {t.modeHint}
             </div>
           </div>
         </div>
@@ -1950,15 +2147,19 @@ export default function App() {
         >
           <div className="stage-ach-panel" onClick={(e) => e.stopPropagation()}>
             <div className="stage-title" style={{fontSize: 'clamp(1.5rem, 4.2vh, 2.5rem)'}}>
-              🏅 LOGROS DE LA CASA ({unlockedCount}/{ACHIEVEMENTS_LIST.length})
+              {t.achModalTitle(unlockedCount, ACHIEVEMENTS_LIST.length)}
             </div>
             <div className="stage-subt" style={{marginBottom: 0}}>
-              Partidas jugadas: {achievements.totalMatches} · Mejor racha: {achievements.bestStreak} ·
-              Torneos ganados: {achievements.tournamentsWon}
+              {t.achModalStats(
+                achievements.totalMatches,
+                achievements.bestStreak,
+                achievements.tournamentsWon,
+              )}
             </div>
             <div className="stage-ach-grid">
               {ACHIEVEMENTS_LIST.map((ach) => {
                 const isUnlocked = Boolean(achievements.unlocked[ach.id]);
+                const localizedAch = getAchievementText(ach.id, lang);
                 return (
                   <div
                     key={ach.id}
@@ -1966,15 +2167,17 @@ export default function App() {
                   >
                     <div className="text-[4.2vh] leading-none">{isUnlocked ? ach.emoji : '🔒'}</div>
                     <div className="font-bold text-white mt-2 text-[2.1vh] leading-tight">
-                      {ach.title}
+                      {localizedAch.title}
                     </div>
-                    <div className="text-slate-300 mt-1 text-[1.5vh] leading-snug">{ach.desc}</div>
+                    <div className="text-slate-300 mt-1 text-[1.5vh] leading-snug">
+                      {localizedAch.desc}
+                    </div>
                   </div>
                 );
               })}
             </div>
             <div className="stage-hint" style={{marginTop: '2.4vh'}}>
-              Presiona OK o Atrás para volver al menú
+              {t.achModalHint}
             </div>
           </div>
         </div>
@@ -2007,26 +2210,26 @@ export default function App() {
             </div>
             <div className="stage-title mt-2" style={{fontSize: 'clamp(1.5rem, 4vh, 2.35rem)'}}>
               {updatePhase === 'available'
-                ? '¡ACTUALIZACIÓN DISPONIBLE!'
+                ? t.updateTitleAvailable
                 : updatePhase === 'downloading'
-                  ? 'DESCARGANDO ACTUALIZACIÓN'
+                  ? t.updateTitleDownloading
                   : updatePhase === 'needs_permission'
-                    ? 'PERMISO EN ANDROID TV'
+                    ? t.updateTitlePermission
                     : updatePhase === 'checking'
-                      ? 'BUSCANDO ACTUALIZACIONES'
-                      : 'ACTUALIZADOR TV'}
+                      ? t.updateTitleChecking
+                      : t.updateTitleDefault}
             </div>
 
             <div className="mt-2 text-[2.2vh] font-bold text-cyan-300">
               {availableUpdate
                 ? `v${tvVersionInfo?.versionName || '1.0.0'}  →  v${availableUpdate.versionName}`
-                : `Versión instalada: v${tvVersionInfo?.versionName || '1.0.0'}`}
+                : t.updateInstalled(tvVersionInfo?.versionName || '1.0.0')}
             </div>
 
             <div className="mt-3 rounded-[1.4vh] border border-white/10 bg-slate-900/80 px-5 py-4 text-[2vh] leading-snug text-slate-200">
               {updatePhase === 'checking'
-                ? 'Revisando si hay una versión más nueva...'
-                : updateMessage || 'Listo para comprobar actualizaciones.'}
+                ? t.updateCheckingMsg
+                : updateMessage || t.updateReadyMsg}
             </div>
 
             {updatePhase === 'downloading' && (
@@ -2055,12 +2258,12 @@ export default function App() {
                   }`}
                 >
                   {updatePhase === 'available'
-                    ? 'Actualizar ahora'
+                    ? t.updateNowBtn
                     : updatePhase === 'needs_permission'
-                      ? 'Instalar / Dar permiso'
+                      ? t.updatePermissionBtn
                       : updatePhase === 'web_only'
-                        ? 'Entendido'
-                        : 'Buscar de nuevo'}
+                        ? t.updateUnderstoodBtn
+                        : t.updateRetryBtn}
                 </button>
                 {updatePhase !== 'web_only' && (
                   <button
@@ -2075,71 +2278,50 @@ export default function App() {
                         : 'border-white/15 bg-slate-900/80 text-slate-300'
                     }`}
                   >
-                    Más tarde
+                    {t.updateLaterBtn}
                   </button>
                 )}
               </div>
             )}
 
             <div className="stage-hint" style={{marginTop: '2.2vh'}}>
-              {updatePhase === 'downloading'
-                ? 'Espera un momento mientras se descarga directo al TV...'
-                : '◀▶ Elegir · OK Confirmar · Atrás Cerrar'}
+              {updatePhase === 'downloading' ? t.updateWaitHint : t.updateHint}
             </div>
           </div>
         </div>
       )}
 
-      {/* CAMPEÓN FINAL DEL TORNEO */}
-      {champion !== null && themeMode === 'amongus' && (
-        <AmongUsVictoryScreen
-          goal={champion.goal}
-          winnerNames={champion.winnerNames}
-          standings={champion.standings}
-          lockRemainingSec={championLockSec}
-          onStartNewTournament={startNewTournament}
+      {/* PANTALLA DE TORNEO (ESTILO 2 3 4 PLAYER MINI GAMES) */}
+      {!showIntro && cupTournament !== null && activeGame === null && podium === null && (
+        <TournamentCupScreen
+          state={cupTournament}
+          pool={cupGamePool}
+          themeMode={themeMode}
+          difficulty={difficulty}
+          lang={lang}
+          onUpdateState={(updater) => setCupTournament((prev) => (prev ? updater(prev) : prev))}
+          onLaunchRound={(gameId) => {
+            setPodium(null);
+            setGameRunKey((k) => k + 1);
+            setActiveGame(gameId as MenuGameId);
+          }}
+          onExit={() => {
+            gameKeyHandlerRef.current = null;
+            setCupTournament(null);
+            setActiveGame(null);
+            setBg('#05070a');
+          }}
+          registerKeyHandler={registerKeyHandler}
         />
       )}
-      {champion !== null && themeMode !== 'amongus' && (
-        <div className="stage-c cursor-pointer" onClick={startNewTournament}>
-          <ConfettiBurst intense />
-          <div className="text-[18vh] leading-none">🏆</div>
-          <div className="stage-sub" style={{opacity: 0.9}}>
-            Meta de {champion.goal} puntos alcanzada
-          </div>
-          <div className="stage-big" style={{fontSize: '8.5vh', marginTop: '1vh'}}>
-            {champion.winnerNames.length > 1
-              ? `¡EMPATE CAMPEÓN: ${champion.winnerNames.join(' y ')}!`
-              : `¡CAMPEÓN: ${champion.winnerNames[0]}!`}
-          </div>
-          <div className="space-y-1.5 mt-4">
-            {champion.standings.map((row, idx) => (
-              <div
-                key={`champ-${idx}-${row.idx}`}
-                className="font-bold"
-                style={{fontSize: idx === 0 ? '4.5vh' : '3.3vh', opacity: idx === 0 ? 1 : 0.85}}
-              >
-                {idx + 1}. {row.name} — {row.pts} pts
-              </div>
-            ))}
-          </div>
-          <div className="stage-hint">
-            OK: nuevo torneo (reiniciar puntos) · ▲: seguir jugando sin borrar puntos
-          </div>
-        </div>
-      )}
 
-      {/* PODIO DE PARTIDA */}
-      {podium !== null && champion === null && (
+      {/* PODIO DE PARTIDA LIBRE */}
+      {podium !== null && (
         <div
           className="stage-c cursor-pointer"
           onClick={() => {
-            if (podium.tournamentReached && tournamentGoal > 0) {
-              openChampionScreen(playersRef.current, tournamentGoal);
-            } else {
-              tone(380, 0.05);
-              goMenu();
-            }
+            tone(380, 0.05);
+            goMenu();
           }}
         >
           <ConfettiBurst />
@@ -2163,135 +2345,126 @@ export default function App() {
               </div>
             ))}
           </div>
-          {podium.tournamentReached ? (
-            <>
-              <div className="stage-sub text-[#fde047]" style={{marginTop: '3vh'}}>
-                🏆 ¡Alguien alcanzó la meta de {tournamentGoal} puntos!
-              </div>
-              <div className="stage-hint">OK: ver ganador final del torneo</div>
-            </>
-          ) : (
-            <div className="stage-hint">OK: menú · ▲: jugar otra vez</div>
-          )}
+          <div className="stage-hint">{t.podiumHint}</div>
         </div>
       )}
 
       {/* JUEGOS ACTIVOS */}
-      {podium === null && champion === null && activeGame === 'bomba' && (
+      {podium === null && activeGame === 'bomba' && (
         <BombaStage key={`bomba-${gameRunKey}`} {...commonProps} />
       )}
-      {podium === null && champion === null && activeGame === 'reflejos' && (
+      {podium === null && activeGame === 'reflejos' && (
         <ReflejosStage key={`reflejos-${gameRunKey}`} {...commonProps} />
       )}
-      {podium === null && champion === null && activeGame === 'simon' && (
+      {podium === null && activeGame === 'simon' && (
         <SimonStage key={`simon-${gameRunKey}`} {...commonProps} />
       )}
-      {podium === null && champion === null && activeGame === 'machaca' && (
+      {podium === null && activeGame === 'machaca' && (
         <MachacaStage key={`machaca-${gameRunKey}`} {...commonProps} />
       )}
-      {podium === null && champion === null && activeGame === 'punteria' && (
+      {podium === null && activeGame === 'punteria' && (
         <PunteriaStage key={`punteria-${gameRunKey}`} {...commonProps} />
       )}
-      {podium === null && champion === null && activeGame === 'reloj' && (
+      {podium === null && activeGame === 'reloj' && (
         <RelojCiegoStage key={`reloj-${gameRunKey}`} {...commonProps} />
       )}
-      {podium === null && champion === null && activeGame === 'memoria' && (
+      {podium === null && activeGame === 'memoria' && (
         <MemoriaStage key={`memoria-${gameRunKey}`} {...commonProps} />
       )}
-      {podium === null && champion === null && activeGame === 'semaforo' && (
+      {podium === null && activeGame === 'semaforo' && (
         <SemaforoStage key={`semaforo-${gameRunKey}`} {...commonProps} />
       )}
-      {podium === null && champion === null && activeGame === 'colores' && (
+      {podium === null && activeGame === 'colores' && (
         <ColoresStage key={`colores-${gameRunKey}`} {...commonProps} />
       )}
-      {podium === null && champion === null && activeGame === 'flechas' && (
+      {podium === null && activeGame === 'flechas' && (
         <FlechasStage key={`flechas-${gameRunKey}`} {...commonProps} />
       )}
-      {podium === null && champion === null && activeGame === 'fnaf_oficina' && (
+      {podium === null && activeGame === 'fnaf_oficina' && (
         <FnafOficinaStage key={`fnaf_oficina-${gameRunKey}`} {...commonProps} />
       )}
-      {podium === null && champion === null && activeGame === 'fnaf_pirate' && (
+      {podium === null && activeGame === 'fnaf_pirate' && (
         <FnafPirateCoveStage key={`fnaf_pirate-${gameRunKey}`} {...commonProps} />
       )}
-      {podium === null && champion === null && activeGame === 'fnaf_puppet' && (
+      {podium === null && activeGame === 'fnaf_puppet' && (
         <FnafPuppetStage key={`fnaf_puppet-${gameRunKey}`} {...commonProps} />
       )}
-      {podium === null && champion === null && activeGame === 'fnaf_springtrap' && (
+      {podium === null && activeGame === 'fnaf_springtrap' && (
         <FnafSpringtrapStage key={`fnaf_springtrap-${gameRunKey}`} {...commonProps} />
       )}
-      {podium === null && champion === null && activeGame === 'fnaf_closet' && (
+      {podium === null && activeGame === 'fnaf_closet' && (
         <FnafClosetStage key={`fnaf_closet-${gameRunKey}`} {...commonProps} />
       )}
-      {podium === null && champion === null && activeGame === 'fnaf_salvage' && (
+      {podium === null && activeGame === 'fnaf_salvage' && (
         <FnafSalvageStage key={`fnaf_salvage-${gameRunKey}`} {...commonProps} />
       )}
-      {podium === null && champion === null && activeGame === 'fnaf_camaras' && (
+      {podium === null && activeGame === 'fnaf_camaras' && (
         <FnafCamarasStage key={`fnaf_camaras-${gameRunKey}`} {...commonProps} />
       )}
-      {podium === null && champion === null && activeGame === 'fnaf_balloon_boy' && (
+      {podium === null && activeGame === 'fnaf_balloon_boy' && (
         <FnafBalloonBoyStage
           key={`fnaf_balloon_boy-${gameRunKey}`}
           {...commonProps}
           onFnafLockout={handleFnafLockout}
         />
       )}
-      {podium === null && champion === null && activeGame === 'au_expulsion' && (
+      {podium === null && activeGame === 'au_expulsion' && (
         <AuExpulsionStage key={`au_expulsion-${gameRunKey}`} {...commonProps} />
       )}
-      {podium === null && champion === null && activeGame === 'au_admin' && (
+      {podium === null && activeGame === 'au_admin' && (
         <AuAdminStage key={`au_admin-${gameRunKey}`} {...commonProps} />
       )}
-      {podium === null && champion === null && activeGame === 'au_falsa' && (
+      {podium === null && activeGame === 'au_falsa' && (
         <AuFalsaStage key={`au_falsa-${gameRunKey}`} {...commonProps} />
       )}
-      {podium === null && champion === null && activeGame === 'au_luces' && (
+      {podium === null && activeGame === 'au_luces' && (
         <AuLucesStage key={`au_luces-${gameRunKey}`} {...commonProps} />
       )}
-      {podium === null && champion === null && activeGame === 'au_distribuidor' && (
+      {podium === null && activeGame === 'au_distribuidor' && (
         <AuDistribuidorStage key={`au_distribuidor-${gameRunKey}`} {...commonProps} />
       )}
-      {podium === null && champion === null && activeGame === 'au_comms' && (
+      {podium === null && activeGame === 'au_comms' && (
         <AuCommsStage key={`au_comms-${gameRunKey}`} {...commonProps} />
       )}
-      {podium === null && champion === null && activeGame === 'au_shapeshifter' && (
+      {podium === null && activeGame === 'au_shapeshifter' && (
         <AuShapeshifterStage
           key={`au_shapeshifter-${gameRunKey}`}
           {...commonProps}
           onAuLockout={handleAuLockout}
         />
       )}
-      {podium === null && champion === null && activeGame === 'ruleta' && (
+      {podium === null && activeGame === 'ruleta' && (
         <RuletaIaStage
           key={`ruleta-${gameRunKey}`}
           {...commonProps}
           onAwardSingle={handleAwardSingle}
         />
       )}
-      {podium === null && champion === null && activeGame === 'trivia' && (
+      {podium === null && activeGame === 'trivia' && (
         <TriviaIaStage key={`trivia-${gameRunKey}`} {...commonProps} />
       )}
-      {podium === null && champion === null && activeGame === 'impostor' && (
+      {podium === null && activeGame === 'impostor' && (
         <ImpostorIaStage key={`impostor-${gameRunKey}`} {...commonProps} />
       )}
-      {podium === null && champion === null && activeGame === 'dilema' && (
+      {podium === null && activeGame === 'dilema' && (
         <DilemaIaStage key={`dilema-${gameRunKey}`} {...commonProps} />
       )}
-      {podium === null && champion === null && activeGame === 'probable' && (
+      {podium === null && activeGame === 'probable' && (
         <MasProbableIaStage key={`probable-${gameRunKey}`} {...commonProps} />
       )}
-      {podium === null && champion === null && activeGame === 'yonunca' && (
+      {podium === null && activeGame === 'yonunca' && (
         <YoNuncaIaStage key={`yonunca-${gameRunKey}`} {...commonProps} />
       )}
-      {podium === null && champion === null && activeGame === 'emoji' && (
+      {podium === null && activeGame === 'emoji' && (
         <EmojiIaStage key={`emoji-${gameRunKey}`} {...commonProps} />
       )}
-      {podium === null && champion === null && activeGame === 'pistas' && (
+      {podium === null && activeGame === 'pistas' && (
         <PistasIaStage key={`pistas-${gameRunKey}`} {...commonProps} />
       )}
-      {podium === null && champion === null && activeGame === 'verdad' && (
+      {podium === null && activeGame === 'verdad' && (
         <VerdadMitoIaStage key={`verdad-${gameRunKey}`} {...commonProps} />
       )}
-      {podium === null && champion === null && activeGame === 'historia' && (
+      {podium === null && activeGame === 'historia' && (
         <HistoriaIaStage key={`historia-${gameRunKey}`} {...commonProps} />
       )}
     </div>

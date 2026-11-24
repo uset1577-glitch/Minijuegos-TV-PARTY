@@ -25,7 +25,7 @@ import java.nio.charset.StandardCharsets;
 @CapacitorPlugin(name = "ApkUpdater")
 public class ApkUpdaterPlugin extends Plugin {
 
-    private static final String UPDATE_FILE_NAME = "MandoPartyTV-update.apk";
+    private static final String UPDATE_FILE_NAME = "CgamesTVPARTY-update.apk";
 
     private File getCachedApkFile() {
         File dir = new File(getContext().getCacheDir(), "updates");
@@ -50,7 +50,7 @@ public class ApkUpdaterPlugin extends Plugin {
             conn.setInstanceFollowRedirects(false);
             conn.setConnectTimeout(15000);
             conn.setReadTimeout(30000);
-            conn.setRequestProperty("User-Agent", "MandoPartyTV-Updater");
+            conn.setRequestProperty("User-Agent", "CgamesTVPARTY-Updater");
             int code = conn.getResponseCode();
             if (code == HttpURLConnection.HTTP_MOVED_PERM
                     || code == HttpURLConnection.HTTP_MOVED_TEMP

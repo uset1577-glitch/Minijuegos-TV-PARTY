@@ -1,5 +1,7 @@
 import {useCallback, useEffect, useRef, useState} from 'react';
 import {
+  DIFFICULTY_META,
+  GameDifficulty,
   RemoteKey,
   StageGameProps,
   playControlClick,
@@ -51,9 +53,13 @@ export function AuExpulsionStage({
   onFinish,
   registerKeyHandler,
   setBg,
+  difficulty = 'normal',
 }: StageGameProps) {
   const np = players.length;
-  const ROUNDS = 4;
+  const ROUNDS = difficulty === 'easy' ? 3 : difficulty === 'hard' ? 5 : 4;
+  const decoyCount = difficulty === 'easy' ? 1 : difficulty === 'hard' ? 3 : 2;
+  const ventOpenMs = difficulty === 'easy' ? 1350 : difficulty === 'hard' ? 550 : 900;
+  const voteSecs = difficulty === 'easy' ? 12 : difficulty === 'hard' ? 5 : 8;
   const [round, setRound] = useState(1);
   const [phase, setPhase] = useState<'WATCH' | 'MEETING' | 'VOTE' | 'EJECT'>('WATCH');
   const [suspects] = useState(() => AMONG_US_COLORS);
@@ -62,9 +68,9 @@ export function AuExpulsionStage({
   const [blackout, setBlackout] = useState(false);
   const [ventOpen, setVentOpen] = useState(false);
   const [ventRoom, setVentRoom] = useState(1);
-  const [decoyVentRooms, setDecoyVentRooms] = useState<[number, number]>([3, 4]);
+  const [decoyVentRooms, setDecoyVentRooms] = useState<number[]>([3, 4]);
   const [voterIdx, setVoterIdx] = useState(0);
-  const [voteTimeLeft, setVoteTimeLeft] = useState(8);
+  const [voteTimeLeft, setVoteTimeLeft] = useState(voteSecs);
   const [cursor, setCursor] = useState(0); // 0..5 suspects, 6 = Skip
   const [votes, setVotes] = useState<(number | null)[]>(() => Array(np).fill(null));
   const [scores, setScores] = useState<number[]>(() => Array(np).fill(0));
@@ -228,12 +234,11 @@ export function AuExpulsionStage({
     const imp = Math.floor(Math.random() * 6);
     const shuffledRooms = shuffleIndices(6);
     const vRoom = shuffledRooms[0];
-    const d1 = shuffledRooms[1];
-    const d2 = shuffledRooms[2];
+    const decoys = shuffledRooms.slice(1, 1 + decoyCount);
 
     setImpostorIdx(imp);
     setVentRoom(vRoom);
-    setDecoyVentRooms([d1, d2]);
+    setDecoyVentRooms(decoys);
     setVentOpen(false);
     setBlackout(false);
     setPositions(shuffleIndices(6));
@@ -242,6 +247,7 @@ export function AuExpulsionStage({
     setVotes(Array(np).fill(null));
     setPhase('WATCH');
 
+    const closeVentAt = 1980 + ventOpenMs;
     timersRef.current.push(
       window.setTimeout(() => {
         setPositions(shuffleIndices(6));
@@ -267,24 +273,24 @@ export function AuExpulsionStage({
         setVentOpen(false);
         setPhase('MEETING');
         tone(660, 0.16);
-      }, 2880),
+      }, closeVentAt),
       window.setTimeout(() => {
         setPhase('VOTE');
-      }, 3900),
+      }, closeVentAt + 1020),
     );
-  }, [clearTimers, clearEjectTimers, np]);
+  }, [clearTimers, clearEjectTimers, decoyCount, np, ventOpenMs]);
 
   useEffect(() => {
     startWatchRound();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Límite de 8 s por turno de voto
+  // Límite de segundos por turno de voto según dificultad
   useEffect(() => {
     if (phase !== 'VOTE') return;
     if (voteIvRef.current) window.clearInterval(voteIvRef.current);
-    let left = 8;
-    setVoteTimeLeft(8);
+    let left = voteSecs;
+    setVoteTimeLeft(voteSecs);
     voteIvRef.current = window.setInterval(() => {
       left -= 1;
       setVoteTimeLeft(Math.max(0, left));
@@ -308,7 +314,7 @@ export function AuExpulsionStage({
         voteIvRef.current = null;
       }
     };
-  }, [phase, voterIdx, np, votes, impostorIdx, finalizeVotes]);
+  }, [phase, voterIdx, np, votes, impostorIdx, finalizeVotes, voteSecs]);
 
   const submitVote = useCallback(
     (choiceIdx: number) => {
@@ -511,7 +517,7 @@ export function AuExpulsionStage({
           const isVentingHere =
             !blackout &&
             ventOpen &&
-            (ventRoom === rIdx || decoyVentRooms[0] === rIdx || decoyVentRooms[1] === rIdx);
+            (ventRoom === rIdx || decoyVentRooms.includes(rIdx));
           return (
             <div
               key={roomName}
@@ -545,7 +551,9 @@ export function AuExpulsionStage({
       </div>
 
       <div className="stage-hint">
-        2 alcantarillas son señuelo — ¡descubre qué color desapareció en 0.9 s!
+        {decoyCount} {decoyCount === 1 ? 'alcantarilla es señuelo' : 'alcantarillas son señuelo'} ·{' '}
+        {DIFFICULTY_META[difficulty].emoji} {DIFFICULTY_META[difficulty].label} — ¡descubre qué color desapareció en{' '}
+        {(ventOpenMs / 1000).toFixed(2)} s!
       </div>
     </div>
   );
@@ -579,9 +587,10 @@ export function AuAdminStage({
   onFinish,
   registerKeyHandler,
   setBg,
+  difficulty = 'normal',
 }: StageGameProps) {
   const np = players.length;
-  const ROUNDS = 5;
+  const ROUNDS = difficulty === 'easy' ? 4 : difficulty === 'hard' ? 6 : 5;
 
   const [ti, setTi] = useState(0);
   const [round, setRound] = useState(1);
@@ -647,8 +656,18 @@ export function AuAdminStage({
 
       // Entre 2 y 4 caminatas legales por pasillo antes del salto por alcantarilla
       const walksBeforeVent = 2 + Math.floor(Math.random() * 3);
-      const beatMs = Math.max(680, 980 - rnd * 55);
-      const reactionLimitMs = Math.max(2400, 3400 - rnd * 200);
+      const beatMs =
+        difficulty === 'easy'
+          ? Math.max(850, 1200 - rnd * 60)
+          : difficulty === 'hard'
+            ? Math.max(480, 740 - rnd * 48)
+            : Math.max(680, 980 - rnd * 55);
+      const reactionLimitMs =
+        difficulty === 'easy'
+          ? Math.max(3200, 4400 - rnd * 220)
+          : difficulty === 'hard'
+            ? Math.max(1600, 2400 - rnd * 150)
+            : Math.max(2400, 3400 - rnd * 200);
       let stepCount = 0;
 
       const scheduleNextBeat = () => {
@@ -701,7 +720,7 @@ export function AuAdminStage({
 
       scheduleNextBeat();
     },
-    [clearTimers],
+    [clearTimers, difficulty],
   );
 
   const reportRoom = useCallback(
@@ -798,7 +817,8 @@ export function AuAdminStage({
     return (
       <PassScreen
         playerName={players[ti].name}
-        subtitle="Mapa Admin: las salas están unidas por tubos verdes (pasillos). Cuando veas SALIÓ ➔ ENTRÓ entre dos salas SIN tubo entre ellas, marca ENTRÓ rápido con OK."
+        difficulty={difficulty}
+        subtitle={`Mapa Admin (${ROUNDS} rondas): cuando veas SALIÓ ➔ ENTRÓ entre dos salas SIN tubo verde entre ellas, marca ENTRÓ rápido con OK.`}
         onReady={() => handleKey('ok')}
       />
     );
@@ -953,9 +973,10 @@ export function AuFalsaStage({
   onFinish,
   registerKeyHandler,
   setBg,
+  difficulty = 'normal',
 }: StageGameProps) {
   const np = players.length;
-  const ROUNDS = 5;
+  const ROUNDS = difficulty === 'easy' ? 4 : difficulty === 'hard' ? 6 : 5;
 
   const [ti, setTi] = useState(0);
   const [round, setRound] = useState(1);
@@ -1009,7 +1030,13 @@ export function AuFalsaStage({
       setAnimTick(0);
       setTaskBarPct(32);
       setSlotProgress([25, 45, 65, 35]);
-      const limitSec = Math.max(7, 10 - Math.floor((rnd - 1) / 2));
+      const limitSec =
+        difficulty === 'easy'
+          ? 11
+          : difficulty === 'hard'
+            ? Math.max(5, 7 - Math.floor((rnd - 1) / 2))
+            : Math.max(7, 10 - Math.floor((rnd - 1) / 2));
+      const tickMs = difficulty === 'easy' ? 260 : difficulty === 'hard' ? 160 : 210;
       setTimeLeft(limitSec);
       setPhase('OBSERVE');
       roundStartRef.current = performance.now();
@@ -1050,9 +1077,9 @@ export function AuFalsaStage({
           );
           setPhase('FEEDBACK');
         }
-      }, 210);
+      }, tickMs);
     },
-    [stopLoops],
+    [stopLoops, difficulty],
   );
 
   const accuse = useCallback(
@@ -1137,7 +1164,8 @@ export function AuFalsaStage({
     return (
       <PassScreen
         playerName={players[ti].name}
-        subtitle="4 sospechosos (5 rondas): detecta errores sutiles en Escáner, Láser, Basura, Escudos o si la Barra Global no sube al 100%."
+        difficulty={difficulty}
+        subtitle={`4 sospechosos (${ROUNDS} rondas): detecta errores sutiles en Escáner, Láser, Basura, Escudos o si la Barra Global no sube al 100%.`}
         onReady={() => handleKey('ok')}
       />
     );
@@ -1322,10 +1350,12 @@ export function AuLucesStage({
   onFinish,
   registerKeyHandler,
   setBg,
+  difficulty = 'normal',
 }: StageGameProps) {
   const np = players.length;
-  const WAVES = 4;
-  const TIME_LIMIT = 22;
+  const WAVES = difficulty === 'easy' ? 3 : difficulty === 'hard' ? 5 : 4;
+  const TIME_LIMIT = difficulty === 'easy' ? 26 : difficulty === 'hard' ? 20 : 22;
+  const crossWiresFrom = difficulty === 'easy' ? 3 : difficulty === 'hard' ? 1 : 2;
 
   const [ti, setTi] = useState(0);
   const [wave, setWave] = useState(1);
@@ -1364,7 +1394,8 @@ export function AuLucesStage({
     if (w === 1) return [false, true, false, false, true];
     if (w === 2) return [false, false, true, false, false];
     if (w === 3) return [true, false, false, true, false];
-    return [false, false, false, false, false];
+    if (w === 4) return [false, false, false, false, false];
+    return [true, false, true, false, true];
   };
 
   const scheduleVentCycle = useCallback(() => {
@@ -1373,7 +1404,15 @@ export function AuLucesStage({
     ventStateRef.current = 'closed';
     setVentState('closed');
 
-    const waitMs = 1450 + Math.floor(Math.random() * 950);
+    const waitMs =
+      difficulty === 'easy'
+        ? 2000 + Math.floor(Math.random() * 1100)
+        : difficulty === 'hard'
+          ? 950 + Math.floor(Math.random() * 700)
+          : 1450 + Math.floor(Math.random() * 950);
+    const rattleMs = difficulty === 'hard' ? 320 : 500;
+    const openMs = difficulty === 'hard' ? 1100 : 1400;
+
     ventLoopRef.current = window.setTimeout(() => {
       ventStateRef.current = 'rattle';
       setVentState('rattle');
@@ -1386,10 +1425,10 @@ export function AuLucesStage({
 
         ventSubRef.current = window.setTimeout(() => {
           scheduleVentCycle();
-        }, 1400);
-      }, 500);
+        }, openMs);
+      }, rattleMs);
     }, waitMs);
-  }, []);
+  }, [difficulty]);
 
   const startShift = useCallback(() => {
     clearTimers();
@@ -1443,10 +1482,10 @@ export function AuLucesStage({
       setSwitches((prev) => {
         const next = [...prev];
         next[idx] = !next[idx];
-        // Desde panel 2 hay cables cruzados
-        if (waveRef.current >= 2 && idx === 1) next[2] = !next[2];
-        if (waveRef.current >= 3 && idx === 3) next[4] = !next[4];
-        if (waveRef.current >= 4 && idx === 0) next[3] = !next[3];
+        // Cables cruzados según dificultad y panel
+        if (waveRef.current >= crossWiresFrom && idx === 1) next[2] = !next[2];
+        if (waveRef.current >= crossWiresFrom + 1 && idx === 3) next[4] = !next[4];
+        if (waveRef.current >= crossWiresFrom + 2 && idx === 0) next[3] = !next[3];
 
         if (next.every(Boolean)) {
           if (waveRef.current < WAVES) {
@@ -1473,7 +1512,7 @@ export function AuLucesStage({
         return next;
       });
     },
-    [phase, clearTimers, ti, timeLeft],
+    [phase, clearTimers, ti, timeLeft, crossWiresFrom, WAVES],
   );
 
   const handleKey = useCallback(
@@ -1520,7 +1559,8 @@ export function AuLucesStage({
     return (
       <PassScreen
         playerName={players[ti].name}
-        subtitle="Electricidad (Difícil): 4 paneles con cables cruzados y vent rápido. ¡Congélate cuando aparezcan los ojos rojos!"
+        difficulty={difficulty}
+        subtitle={`Electricidad (${WAVES} paneles): con cables cruzados desde panel ${crossWiresFrom}. ¡Congélate cuando aparezcan los ojos rojos!`}
         onReady={() => handleKey('ok')}
       />
     );
@@ -1559,7 +1599,7 @@ export function AuLucesStage({
             ? '👁️ ¡IMPOSTOR MIRANDO! ¡QUIETO!'
             : ventState === 'rattle'
               ? '⚠️ Alcantarilla temblando…'
-              : wave >= 2
+              : wave >= crossWiresFrom
                 ? '⚡ Cables cruzados activos'
                 : '✅ Alcantarilla cerrada'}
         </span>
@@ -1633,10 +1673,13 @@ export function AuDistribuidorStage({
   onFinish,
   registerKeyHandler,
   setBg,
+  difficulty = 'normal',
 }: StageGameProps) {
   const np = players.length;
-  const PANELS_NEEDED = 3;
-  const TIME_LIMIT = 22;
+  const PANELS_NEEDED = difficulty === 'easy' ? 2 : difficulty === 'hard' ? 4 : 3;
+  const TIME_LIMIT = difficulty === 'easy' ? 26 : difficulty === 'hard' ? 21 : 22;
+  const speedMult = difficulty === 'easy' ? 0.75 : difficulty === 'hard' ? 1.28 : 1.0;
+  const tolerance = difficulty === 'easy' ? 28 : difficulty === 'hard' ? 11 : 18;
 
   const [ti, setTi] = useState(0);
   const [panelNum, setPanelNum] = useState(1);
@@ -1707,7 +1750,7 @@ export function AuDistribuidorStage({
     const tick = (now: number) => {
       const dt = Math.min(0.05, (now - lastTs) / 1000);
       lastTs = now;
-      const speedBoost = 1 + (panelRef.current - 1) * 0.22;
+      const speedBoost = (1 + (panelRef.current - 1) * 0.22) * speedMult;
       // Anillo 2 gira en sentido inverso para evitar memoria muscular
       const speeds = [235 * speedBoost, -310 * speedBoost, 390 * speedBoost];
       const next: [number, number, number] = [...anglesRef.current] as [number, number, number];
@@ -1722,14 +1765,13 @@ export function AuDistribuidorStage({
       rafRef.current = requestAnimationFrame(tick);
     };
     rafRef.current = requestAnimationFrame(tick);
-  }, [stopLoops, ti]);
+  }, [stopLoops, ti, PANELS_NEEDED, TIME_LIMIT, speedMult]);
 
   const attemptLock = useCallback(() => {
     if (phase !== 'PLAY') return;
     const r = ringRef.current;
     const deg = anglesRef.current[r];
     const dist = Math.min(deg, 360 - deg);
-    const tolerance = 18;
 
     if (dist <= tolerance) {
       playControlClick();
@@ -1764,7 +1806,7 @@ export function AuDistribuidorStage({
       window.setTimeout(() => setFlashErr(false), 260);
       tone(135, 0.24, 'sawtooth');
     }
-  }, [phase, stopLoops, ti]);
+  }, [phase, stopLoops, ti, PANELS_NEEDED, tolerance]);
 
   const handleKey = useCallback(
     (k: RemoteKey) => {
@@ -1802,7 +1844,8 @@ export function AuDistribuidorStage({
     return (
       <PassScreen
         playerName={players[ti].name}
-        subtitle="Distribuidor (Difícil): 3 paneles veloces, anillo Azul gira al revés y muesca estrecha (±18°). ¡Fallo = reinicio!"
+        difficulty={difficulty}
+        subtitle={`Distribuidor (${PANELS_NEEDED} paneles): anillo Azul gira al revés y muesca ±${tolerance}°. ¡Fallo = reinicio!`}
         onReady={() => handleKey('ok')}
       />
     );
@@ -1912,10 +1955,12 @@ export function AuCommsStage({
   onFinish,
   registerKeyHandler,
   setBg,
+  difficulty = 'normal',
 }: StageGameProps) {
   const np = players.length;
-  const CHANNELS = 4;
-  const TIME_LIMIT = 22;
+  const CHANNELS = difficulty === 'easy' ? 3 : difficulty === 'hard' ? 5 : 4;
+  const TIME_LIMIT = difficulty === 'easy' ? 26 : 22;
+  const lockThreshold = difficulty === 'easy' ? 88 : difficulty === 'hard' ? 96 : 93;
 
   const [ti, setTi] = useState(0);
   const [channel, setChannel] = useState(1);
@@ -1942,7 +1987,7 @@ export function AuCommsStage({
   useEffect(() => stopTimer, [stopTimer]);
 
   const matchPct = Math.max(0, Math.round(100 - Math.abs(targetDial - playerDial) * 1.9));
-  const isLocked = matchPct >= 93;
+  const isLocked = matchPct >= lockThreshold;
 
   useEffect(() => {
     setBg(phase === 'PLAY' && isLocked ? '#063322' : '#0a1019');
@@ -1987,14 +2032,19 @@ export function AuCommsStage({
       }
     }, 100);
 
-    // Deriva de interferencia en canales 2–4
-    driftRef.current = window.setInterval(() => {
-      if (channelRef.current >= 2) {
-        const nudge = Math.random() < 0.5 ? -3 : 3;
-        setTargetDial((t) => Math.max(10, Math.min(90, t + nudge)));
-      }
-    }, 1500);
-  }, [stopTimer, loadChannel, ti]);
+    // Deriva de interferencia en normal (canal ≥ 2) y difícil (canal ≥ 1 más rápido)
+    if (difficulty !== 'easy') {
+      const driftFrom = difficulty === 'hard' ? 1 : 2;
+      const driftStep = difficulty === 'hard' ? 4 : 3;
+      const driftMs = difficulty === 'hard' ? 950 : 1500;
+      driftRef.current = window.setInterval(() => {
+        if (channelRef.current >= driftFrom) {
+          const nudge = Math.random() < 0.5 ? -driftStep : driftStep;
+          setTargetDial((t) => Math.max(10, Math.min(90, t + nudge)));
+        }
+      }, driftMs);
+    }
+  }, [stopTimer, loadChannel, ti, CHANNELS, TIME_LIMIT, difficulty]);
 
   const moveDial = useCallback(
     (delta: number) => {
@@ -2069,7 +2119,8 @@ export function AuCommsStage({
     return (
       <PassScreen
         playerName={players[ti].name}
-        subtitle="Comms (Difícil): 4 canales con deriva de señal. Exige ≥93% de sincronía (usar ▲▼ fino); fallar OK suma +1.5 s."
+        difficulty={difficulty}
+        subtitle={`Comms (${CHANNELS} canales): exige ≥${lockThreshold}% de sincronía (usar ▲▼ fino); fallar OK suma +1.5 s.`}
         onReady={() => handleKey('ok')}
       />
     );
@@ -2109,7 +2160,9 @@ export function AuCommsStage({
               isLocked ? 'text-emerald-300' : 'text-red-400'
             }`}
           >
-            {isLocked ? '🟢 SEÑAL SINCRONIZADA (≥93%) — ¡OK!' : '🔴 ¡COMMS SABOTEADAS! (Meta ≥93%)'}
+            {isLocked
+              ? `🟢 SEÑAL SINCRONIZADA (≥${lockThreshold}%) — ¡OK!`
+              : `🔴 ¡COMMS SABOTEADAS! (Meta ≥${lockThreshold}%)`}
           </span>
           <span className="font-mono text-[2vh] text-cyan-200 tabular-nums">
             {(88 + playerDial * 0.2).toFixed(1)} MHz
@@ -2166,7 +2219,9 @@ export function AuCommsStage({
         </div>
       </div>
 
-      <div className="stage-hint">◀▶ Girar dial (±4) · ▲▼ Ajuste fino (±1) · OK Fijar (≥93%)</div>
+      <div className="stage-hint">
+        ◀▶ Girar dial (±4) · ▲▼ Ajuste fino (±1) · OK Fijar (≥{lockThreshold}%)
+      </div>
     </div>
   );
 }
@@ -2184,29 +2239,57 @@ type ShifterGlitchKind = 'morph' | 'flip' | 'aura';
 interface ShifterSlot {
   color: CrewColorMeta;
   isShifter: boolean;
-  isTwin: boolean;
 }
 
 interface ShifterWave {
   slots: ShifterSlot[];
   shifterIdx: number;
-  clonedLabel: string;
 }
 
-function buildShapeshifterWave(): ShifterWave {
-  const palette = shuffleIndices(AMONG_US_COLORS.length)
-    .slice(0, 5)
-    .map((i) => AMONG_US_COLORS[i]);
-  const clonedColor = palette[0];
-  const raw: ShifterSlot[] = [
-    {color: clonedColor, isShifter: true, isTwin: false},
-    {color: clonedColor, isShifter: false, isTwin: true},
-    ...palette.slice(1).map((c) => ({color: c, isShifter: false, isTwin: false})),
-  ];
+function buildShapeshifterWave(difficulty: GameDifficulty): ShifterWave {
+  let raw: ShifterSlot[];
+  if (difficulty === 'easy') {
+    // 1 par duplicado + 4 colores únicos
+    const palette = shuffleIndices(AMONG_US_COLORS.length)
+      .slice(0, 5)
+      .map((i) => AMONG_US_COLORS[i]);
+    raw = [
+      {color: palette[0], isShifter: true},
+      {color: palette[0], isShifter: false},
+      ...palette.slice(1).map((c) => ({color: c, isShifter: false})),
+    ];
+  } else if (difficulty === 'hard') {
+    // 3 pares duplicados distintos (los 6 en pares, sin pistas de color único)
+    const palette = shuffleIndices(AMONG_US_COLORS.length)
+      .slice(0, 3)
+      .map((i) => AMONG_US_COLORS[i]);
+    raw = [
+      {color: palette[0], isShifter: true},
+      {color: palette[0], isShifter: false},
+      {color: palette[1], isShifter: false},
+      {color: palette[1], isShifter: false},
+      {color: palette[2], isShifter: false},
+      {color: palette[2], isShifter: false},
+    ];
+  } else {
+    // Normal: 2 pares duplicados distintos + 2 únicos
+    const palette = shuffleIndices(AMONG_US_COLORS.length)
+      .slice(0, 4)
+      .map((i) => AMONG_US_COLORS[i]);
+    raw = [
+      {color: palette[0], isShifter: true},
+      {color: palette[0], isShifter: false},
+      {color: palette[1], isShifter: false},
+      {color: palette[1], isShifter: false},
+      {color: palette[2], isShifter: false},
+      {color: palette[3], isShifter: false},
+    ];
+  }
+
   const order = shuffleIndices(raw.length);
   const slots = order.map((i) => raw[i]);
   const shifterIdx = slots.findIndex((s) => s.isShifter);
-  return {slots, shifterIdx, clonedLabel: clonedColor.label};
+  return {slots, shifterIdx};
 }
 
 export function AuShapeshifterStage({
@@ -2215,16 +2298,18 @@ export function AuShapeshifterStage({
   onAuLockout,
   registerKeyHandler,
   setBg,
+  difficulty = 'normal',
 }: ShapeshifterStageProps) {
-  const MAX_CATCHES = 4;
-  const MAX_STRIKES = 2;
+  const MAX_CATCHES = difficulty === 'easy' ? 4 : difficulty === 'hard' ? 6 : 5;
+  const MAX_STRIKES = difficulty === 'easy' ? 2 : 1;
 
   const [phase, setPhase] = useState<'PLAY' | 'CAUGHT' | 'AMBUSH' | 'WIN'>('PLAY');
   const [catches, setCatches] = useState(0);
   const [strikes, setStrikes] = useState(0);
   const [cursor, setCursor] = useState(0);
-  const [wave, setWave] = useState<ShifterWave>(() => buildShapeshifterWave());
+  const [wave, setWave] = useState<ShifterWave>(() => buildShapeshifterWave(difficulty));
   const [glitchKind, setGlitchKind] = useState<ShifterGlitchKind | null>(null);
+  const [decoyIdx, setDecoyIdx] = useState<number | null>(null);
   const [timePct, setTimePct] = useState(100);
   const [missNote, setMissNote] = useState<string | null>(null);
   const [canDismissAmbush, setCanDismissAmbush] = useState(false);
@@ -2238,6 +2323,9 @@ export function AuShapeshifterStage({
   const expireTimerRef = useRef<number | null>(null);
   const glitchTimerRef = useRef<number | null>(null);
   const glitchEndRef = useRef<number | null>(null);
+  const decoyTimerRef = useRef<number | null>(null);
+  const decoyEndRef = useRef<number | null>(null);
+  const swapTimerRef = useRef<number | null>(null);
   const caughtTimerRef = useRef<number | null>(null);
   const noteTimerRef = useRef<number | null>(null);
   const ambushLockRef = useRef<number | null>(null);
@@ -2248,6 +2336,9 @@ export function AuShapeshifterStage({
     if (expireTimerRef.current) window.clearTimeout(expireTimerRef.current);
     if (glitchTimerRef.current) window.clearTimeout(glitchTimerRef.current);
     if (glitchEndRef.current) window.clearTimeout(glitchEndRef.current);
+    if (decoyTimerRef.current) window.clearTimeout(decoyTimerRef.current);
+    if (decoyEndRef.current) window.clearTimeout(decoyEndRef.current);
+    if (swapTimerRef.current) window.clearTimeout(swapTimerRef.current);
     if (caughtTimerRef.current) window.clearTimeout(caughtTimerRef.current);
     if (noteTimerRef.current) window.clearTimeout(noteTimerRef.current);
     if (ambushLockRef.current) window.clearTimeout(ambushLockRef.current);
@@ -2256,6 +2347,9 @@ export function AuShapeshifterStage({
     expireTimerRef.current = null;
     glitchTimerRef.current = null;
     glitchEndRef.current = null;
+    decoyTimerRef.current = null;
+    decoyEndRef.current = null;
+    swapTimerRef.current = null;
     caughtTimerRef.current = null;
     noteTimerRef.current = null;
     ambushLockRef.current = null;
@@ -2269,9 +2363,16 @@ export function AuShapeshifterStage({
     else setBg('#070d19');
   }, [phase, setBg]);
 
+  const showTempNote = useCallback((text: string) => {
+    setMissNote(text);
+    if (noteTimerRef.current) window.clearTimeout(noteTimerRef.current);
+    noteTimerRef.current = window.setTimeout(() => setMissNote(null), 950);
+  }, []);
+
   const triggerAmbush = useCallback(() => {
     clearTimers();
     setGlitchKind(null);
+    setDecoyIdx(null);
     setCanDismissAmbush(false);
     setPhase('AMBUSH');
     tone(95, 0.55, 'sawtooth', 0.25);
@@ -2289,15 +2390,21 @@ export function AuShapeshifterStage({
   const startWave = useCallback(
     (currentCatches: number) => {
       clearTimers();
-      const nextWave = buildShapeshifterWave();
+      const nextWave = buildShapeshifterWave(difficulty);
       waveRef.current = nextWave;
       setWave(nextWave);
       setGlitchKind(null);
+      setDecoyIdx(null);
       setMissNote(null);
       setTimePct(100);
       setPhase('PLAY');
 
-      const waveMs = Math.max(5400, 8200 - currentCatches * 850);
+      const waveMs =
+        difficulty === 'easy'
+          ? Math.max(4400, 6200 - currentCatches * 450)
+          : difficulty === 'hard'
+            ? Math.max(2900, 4400 - currentCatches * 280)
+            : Math.max(3400, 5200 - currentCatches * 380);
       const t0 = performance.now();
       barIvRef.current = window.setInterval(() => {
         const elapsed = performance.now() - t0;
@@ -2311,13 +2418,26 @@ export function AuShapeshifterStage({
       const kinds: ShifterGlitchKind[] = ['morph', 'flip', 'aura'];
       const scheduleGlitch = (first = false) => {
         const waitMs = first
-          ? 280
-          : Math.max(520, 920 - currentCatches * 100) + Math.floor(Math.random() * 280);
+          ? difficulty === 'hard'
+            ? 320
+            : 260
+          : difficulty === 'easy'
+            ? 420 + Math.floor(Math.random() * 220)
+            : difficulty === 'hard'
+              ? 300 + Math.floor(Math.random() * 220)
+              : 380 + Math.floor(Math.random() * 260);
         glitchTimerRef.current = window.setTimeout(() => {
           const picked = kinds[Math.floor(Math.random() * kinds.length)];
           setGlitchKind(picked);
-          tone(760, 0.04, 'triangle', 0.05);
-          const showMs = Math.max(360, 580 - currentCatches * 60);
+          if (difficulty === 'easy') {
+            tone(760, 0.035, 'triangle', 0.045);
+          }
+          const showMs =
+            difficulty === 'easy'
+              ? Math.max(320, 430 - currentCatches * 25)
+              : difficulty === 'hard'
+                ? Math.max(140, 200 - currentCatches * 12)
+                : Math.max(190, 260 - currentCatches * 15);
           glitchEndRef.current = window.setTimeout(() => {
             setGlitchKind(null);
             scheduleGlitch(false);
@@ -2325,8 +2445,48 @@ export function AuShapeshifterStage({
         }, waitMs);
       };
       scheduleGlitch(true);
+
+      // Parpadeos benignos de señuelo en inocentes (Normal y Difícil)
+      if (difficulty !== 'easy') {
+        const scheduleDecoy = () => {
+          const dWait =
+            difficulty === 'hard'
+              ? 360 + Math.floor(Math.random() * 340)
+              : 540 + Math.floor(Math.random() * 420);
+          decoyTimerRef.current = window.setTimeout(() => {
+            const cur = waveRef.current;
+            const candidates = cur.slots
+              .map((s, idx) => (s.isShifter ? -1 : idx))
+              .filter((idx) => idx !== -1);
+            if (candidates.length > 0) {
+              const chosen = candidates[Math.floor(Math.random() * candidates.length)];
+              setDecoyIdx(chosen);
+              decoyEndRef.current = window.setTimeout(() => {
+                setDecoyIdx(null);
+                scheduleDecoy();
+              }, 160);
+            }
+          }, dWait);
+        };
+        scheduleDecoy();
+      }
+
+      // En Difícil, cambio sorpresa de posiciones a mitad de ronda
+      if (difficulty === 'hard') {
+        swapTimerRef.current = window.setTimeout(() => {
+          const cur = waveRef.current;
+          const perm = shuffleIndices(cur.slots.length);
+          const shuffledSlots = perm.map((i) => cur.slots[i]);
+          const nextIdx = shuffledSlots.findIndex((s) => s.isShifter);
+          const updated: ShifterWave = {slots: shuffledSlots, shifterIdx: nextIdx};
+          waveRef.current = updated;
+          setWave(updated);
+          tone(480, 0.07, 'triangle', 0.07);
+          showTempNote('🔄 ¡CAMBIO DE POSICIÓN!');
+        }, 1350);
+      }
     },
-    [clearTimers, triggerAmbush],
+    [clearTimers, triggerAmbush, difficulty, showTempNote],
   );
 
   useEffect(() => {
@@ -2336,18 +2496,13 @@ export function AuShapeshifterStage({
     return () => clearTimers();
   }, [startWave, clearTimers]);
 
-  const showTempNote = useCallback((text: string) => {
-    setMissNote(text);
-    if (noteTimerRef.current) window.clearTimeout(noteTimerRef.current);
-    noteTimerRef.current = window.setTimeout(() => setMissNote(null), 900);
-  }, []);
-
   const accuseSlot = useCallback(
     (idx: number) => {
       if (phase !== 'PLAY') return;
       if (idx === waveRef.current.shifterIdx) {
         clearTimers();
         setGlitchKind(null);
+        setDecoyIdx(null);
         playControlClick();
         tone(560, 0.1, 'triangle', 0.15);
         window.setTimeout(() => tone(820, 0.16, 'triangle', 0.14), 80);
@@ -2375,10 +2530,10 @@ export function AuShapeshifterStage({
           triggerAmbush();
           return;
         }
-        showTempNote(`❌ ¡Era tripulante inocente! Fallo ${nextSt}/${MAX_STRIKES}`);
+        showTempNote(`❌ ¡Inocente! Fallo ${nextSt}/${MAX_STRIKES}`);
       }
     },
-    [phase, clearTimers, startWave, triggerAmbush, showTempNote],
+    [phase, clearTimers, startWave, triggerAmbush, showTempNote, MAX_CATCHES, MAX_STRIKES],
   );
 
   const finishVictory = useCallback(() => {
@@ -2399,7 +2554,7 @@ export function AuShapeshifterStage({
       },
       sharedPts,
     );
-  }, [clearTimers, players.length, onFinish, startWave]);
+  }, [clearTimers, players.length, onFinish, startWave, MAX_CATCHES]);
 
   const handleKey = useCallback(
     (k: RemoteKey) => {
@@ -2477,22 +2632,27 @@ export function AuShapeshifterStage({
   return (
     <div className="stage-c">
       <div className="stage-sub text-cyan-300">
-        Emboscada Shapeshifter · Rondas {catches}/{MAX_CATCHES} ·{' '}
+        Emboscada Shapeshifter ({DIFFICULTY_META[difficulty].emoji} {DIFFICULTY_META[difficulty].label}) · Rondas{' '}
+        {catches}/{MAX_CATCHES} ·{' '}
         <span className={strikes > 0 ? 'text-red-400 font-bold' : 'text-slate-300'}>
           Fallos {strikes}/{MAX_STRIKES}
         </span>
       </div>
 
-      <div className="stage-big" style={{fontSize: 'clamp(1.35rem, 4vh, 2.5rem)', marginTop: '0.3vh'}}>
+      <div className="stage-big" style={{fontSize: 'clamp(1.3rem, 3.8vh, 2.35rem)', marginTop: '0.3vh'}}>
         {phase === 'CAUGHT'
           ? '✅ ¡CLON DESENMASCARADO!'
-          : missNote ?? `Color duplicado: ${wave.clonedLabel} — ¡caza al que falla!`}
+          : missNote ??
+            (difficulty === 'easy'
+              ? '¡Uno muta con colmillos, voltea o brilla morado!'
+              : '¡Observa los pares y detecta el micro-fallo real!')}
       </div>
 
       <div className="mx-auto mt-[2vh] grid max-w-[78vw] grid-cols-3 gap-[1.4vw]">
         {wave.slots.map((slot, idx) => {
           const isSelected = cursor === idx;
           const isGlitching = phase === 'PLAY' && slot.isShifter && glitchKind !== null;
+          const isDecoyBlink = phase === 'PLAY' && decoyIdx === idx && !slot.isShifter;
           const isRevealed = phase === 'CAUGHT' && slot.isShifter;
           const crewState =
             isRevealed || (isGlitching && glitchKind === 'morph') ? 'impostor' : 'alive';
@@ -2510,19 +2670,14 @@ export function AuShapeshifterStage({
                 isRevealed
                   ? 'scale-105 border-emerald-400 bg-emerald-950/75 shadow-[0_0_3vh_rgba(52,211,153,0.5)]'
                   : isSelected
-                    ? 'scale-[1.03] border-cyan-300 bg-slate-900/95 shadow-[0_0_2.5vh_rgba(34,211,238,0.45)]'
+                    ? 'scale-[1.03] border-white bg-slate-900 shadow-[0_0_2.5vh_rgba(255,255,255,0.28)]'
                     : isGlitching && glitchKind === 'aura'
                       ? 'border-fuchsia-400 bg-fuchsia-950/55'
-                      : slot.isShifter || slot.isTwin
-                        ? 'border-amber-400/35 bg-slate-950/85'
-                        : 'border-white/15 bg-slate-950/80'
+                      : isDecoyBlink
+                        ? 'border-cyan-400/35 bg-slate-900/95 opacity-80'
+                        : 'border-cyan-400/35 bg-slate-950/90'
               }`}
             >
-              {isGlitching && glitchKind === 'aura' && (
-                <span className="mb-[0.3vh] text-[1.5vh] font-black text-fuchsia-300">
-                  MUTANDO…
-                </span>
-              )}
               <CrewmateSvg
                 bodyColor={slot.color.body}
                 shadeColor={slot.color.shade}
@@ -2552,7 +2707,7 @@ export function AuShapeshifterStage({
       </div>
 
       <div className="stage-hint">
-        Busca los 2 del mismo color ({wave.clonedLabel}) y reporta con OK al que mute o se voltee
+        Detecta colmillos rojos, giro rápido o destello morado · OK: reportar antes de que expire la barra
       </div>
     </div>
   );

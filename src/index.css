@@ -29,16 +29,7 @@ body,
   align-items: center;
   justify-content: center;
   text-align: center;
-  transition: background-color 220ms ease;
-}
-
-.stage-root::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  background: radial-gradient(circle at 50% 25%, rgba(147, 197, 253, 0.08), transparent 62%),
-    radial-gradient(circle at 50% 100%, rgba(0, 0, 0, 0.32), transparent 55%);
+  transition: background-color 180ms ease;
 }
 
 .stage-c {
@@ -47,7 +38,7 @@ body,
   padding: 2vh 4vw;
   max-width: 96vw;
   width: 100%;
-  animation: stageFadeIn 220ms ease-out;
+  animation: stageFadeIn 180ms ease-out;
 }
 
 .stage-big {
@@ -55,7 +46,6 @@ body,
   font-size: clamp(2.2rem, 10vh, 6rem);
   font-weight: 800;
   line-height: 1.08;
-  text-shadow: 0 0.4vh 1.2vh rgba(0, 0, 0, 0.38);
 }
 
 .stage-giant {
@@ -83,7 +73,6 @@ body,
   width: 91vw;
   max-width: 1480px;
   text-align: center;
-  animation: stageFadeIn 260ms ease-out;
 }
 
 .stage-title {
@@ -110,32 +99,44 @@ body,
   gap: 0.35vw;
   padding: 0.35vh 1vw;
   border-radius: 1vh;
-  border: 0.3vh solid rgba(255, 255, 255, 0.14);
-  background: rgba(15, 23, 42, 0.72);
+  border: 0.3vh solid #283548;
+  background: #101827;
   color: #e2e8f0;
   font-weight: 700;
   font-size: clamp(0.8rem, 2vh, 1.15rem);
   cursor: pointer;
-  transition: transform 130ms ease, border-color 130ms ease, background-color 130ms ease, box-shadow 130ms ease;
+}
+
+.stage-top-btn.diff-easy {
+  color: #86efac;
+  border-color: #166534;
+}
+
+.stage-top-btn.diff-normal {
+  color: #7dd3fc;
+  border-color: #0369a1;
+}
+
+.stage-top-btn.diff-hard {
+  color: #fca5a5;
+  border-color: #991b1b;
 }
 
 .stage-top-btn.ach {
   color: #fde047;
-  border-color: rgba(250, 204, 21, 0.28);
+  border-color: #6b5311;
 }
 
 .stage-top-btn.sel {
   border-color: #ffffff;
-  background: linear-gradient(180deg, #2b3c56, #1c283b);
+  background: #23334c;
   color: #ffffff;
-  transform: scale(1.07);
-  box-shadow: 0 0 2vh rgba(147, 197, 253, 0.35);
+  transform: scale(1.06);
 }
 
 .stage-top-btn.ach.sel {
   border-color: #fde047;
   color: #fef08a;
-  box-shadow: 0 0 2.2vh rgba(250, 204, 21, 0.35);
 }
 
 .stage-grid {
@@ -152,12 +153,11 @@ body,
 }
 
 .stage-card {
-  background: linear-gradient(180deg, rgba(26, 35, 50, 0.9), rgba(15, 21, 32, 0.95));
-  border: 0.36vh solid rgba(255, 255, 255, 0.05);
+  background: #131b29;
+  border: 0.36vh solid #222e42;
   border-radius: 1.4vh;
   padding: 0.78vh 0.6vw;
   cursor: pointer;
-  transition: transform 140ms ease, background-color 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -166,19 +166,17 @@ body,
 
 .stage-card.sel {
   border-color: #ffffff;
-  background: linear-gradient(180deg, #2b3c56, #1c283b);
-  transform: scale(1.05);
-  box-shadow: 0 0 2.4vh rgba(147, 197, 253, 0.28);
+  background: #24354f;
+  transform: scale(1.04);
 }
 
 .stage-card .e {
   font-size: clamp(1.25rem, 3.45vh, 2.35rem);
   line-height: 1.08;
-  transition: transform 160ms ease;
 }
 
 .stage-card.sel .e {
-  transform: scale(1.12);
+  transform: scale(1.1);
 }
 
 .stage-card .t {
@@ -395,17 +393,16 @@ body,
 /* Tarjetas de juegos exclusivos del modo FNAF */
 .stage-card.fnaf-exclusive {
   position: relative;
-  border-color: rgba(245, 158, 11, 0.48);
-  box-shadow: inset 0 0 1.6vh rgba(245, 158, 11, 0.16);
+  border-color: rgba(245, 158, 11, 0.5);
 }
 
 .fnaf-ex-tag {
   position: absolute;
-  top: 0.35vh;
+  top: 0.3vh;
   right: 0.45vw;
-  font-size: clamp(0.45rem, 1vh, 0.68rem);
+  font-size: clamp(0.42rem, 0.95vh, 0.65rem);
   font-weight: 800;
-  letter-spacing: 0.06vh;
+  letter-spacing: 0.05vh;
   color: #fde047;
   opacity: 0.9;
 }
@@ -413,17 +410,16 @@ body,
 /* Tarjetas de juegos exclusivos del modo Among Us */
 .stage-card.amongus-exclusive {
   position: relative;
-  border-color: rgba(34, 211, 238, 0.5);
-  box-shadow: inset 0 0 1.6vh rgba(6, 182, 212, 0.18);
+  border-color: rgba(34, 211, 238, 0.52);
 }
 
 .amongus-ex-tag {
   position: absolute;
-  top: 0.35vh;
+  top: 0.3vh;
   right: 0.45vw;
-  font-size: clamp(0.45rem, 1vh, 0.68rem);
+  font-size: clamp(0.42rem, 0.95vh, 0.65rem);
   font-weight: 800;
-  letter-spacing: 0.06vh;
+  letter-spacing: 0.05vh;
   color: #67e8f9;
   opacity: 0.92;
 }
@@ -622,22 +618,19 @@ body,
   position: fixed;
   inset: 0;
   z-index: 45;
-  background: rgba(5, 7, 10, 0.84);
-  backdrop-filter: blur(6px);
+  background: rgba(5, 7, 10, 0.92);
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 3vh 4vw;
-  animation: stageFadeIn 180ms ease-out;
 }
 
 .stage-ach-panel {
   width: min(86vw, 1120px);
-  background: linear-gradient(180deg, rgba(22, 31, 46, 0.98), rgba(12, 18, 28, 0.98));
+  background: #101723;
   border: 0.35vh solid rgba(255, 255, 255, 0.16);
   border-radius: 2.2vh;
   padding: 2.6vh 2.6vw;
-  box-shadow: 0 2vh 5vh rgba(0, 0, 0, 0.65);
   text-align: center;
 }
 
@@ -658,7 +651,7 @@ body,
   border-radius: 1.6vh;
   padding: 1.6vh 1vw;
   border: 0.28vh solid rgba(255, 255, 255, 0.08);
-  background: rgba(15, 23, 42, 0.65);
+  background: #161f30;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -667,23 +660,20 @@ body,
 
 .stage-ach-card.unlocked {
   border-color: rgba(250, 204, 21, 0.55);
-  background: linear-gradient(180deg, rgba(38, 49, 71, 0.92), rgba(20, 29, 45, 0.95));
-  box-shadow: 0 0 1.8vh rgba(250, 204, 21, 0.12);
+  background: #1f2a3e;
 }
 
 .stage-ach-card.locked {
   opacity: 0.48;
-  filter: grayscale(0.75);
 }
 
 /* Apartado selector de modo / temática */
 .stage-mode-panel {
   width: min(92vw, 1260px);
-  background: linear-gradient(180deg, rgba(22, 31, 46, 0.98), rgba(12, 18, 28, 0.98));
+  background: #101723;
   border: 0.35vh solid rgba(255, 255, 255, 0.16);
   border-radius: 2.2vh;
   padding: 2.8vh 2.6vw;
-  box-shadow: 0 2vh 5vh rgba(0, 0, 0, 0.7);
   text-align: center;
 }
 
@@ -759,148 +749,94 @@ body,
 }
 
 /* ==========================================================================
-   MODO TEMÁTICA FNAF — TEXTURAS DE PIZZERÍA Y MONITOR DE SEGURIDAD
+   MODO TEMÁTICA FNAF — ESTILO RÁPIDO PARA ANDROID TV
    ========================================================================== */
 
 .stage-root.theme-fnaf[data-game-bg="default"] {
-  background-color: #070608;
-  background-image:
-    linear-gradient(180deg, rgba(6, 5, 8, 0.72) 0%, rgba(10, 8, 12, 0.62) 50%, rgba(5, 4, 7, 0.85) 100%),
-    var(--fnaf-bg);
-  background-size: cover;
-  background-position: center;
-}
-
-.fnaf-crt-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 2;
-  pointer-events: none;
-  background-image:
-    repeating-linear-gradient(
-      to bottom,
-      rgba(255, 255, 255, 0.025) 0px,
-      rgba(255, 255, 255, 0.025) 1px,
-      transparent 1px,
-      transparent 4px
-    ),
-    radial-gradient(circle at 50% 50%, transparent 52%, rgba(0, 0, 0, 0.56) 100%);
-}
-
-.fnaf-cam-corners {
-  position: fixed;
-  inset: 2.2vh 2.4vw;
-  z-index: 3;
-  pointer-events: none;
-  border: 0.25vh solid rgba(255, 255, 255, 0.12);
-  box-shadow: inset 0 0 3vh rgba(0, 0, 0, 0.45);
+  background-color: #0b070a;
 }
 
 .fnaf-checker-bar {
-  height: 1.35vh;
+  height: 0.5vh;
   width: 100%;
-  border-radius: 0.7vh;
-  margin: 0.4vh auto 1.2vh;
-  background-image: linear-gradient(rgba(0, 0, 0, 0.25), rgba(0, 0, 0, 0.25)), var(--fnaf-tile);
-  background-size: auto 7vh;
-  background-repeat: repeat-x;
-  background-position: center;
-  border: 0.2vh solid rgba(245, 158, 11, 0.28);
-  box-shadow: 0 0.4vh 1.2vh rgba(0, 0, 0, 0.5);
+  border-radius: 999px;
+  margin: 0.25vh auto 0.85vh;
+  background: #b45309;
 }
 
 .theme-fnaf .stage-intro {
-  background:
-    radial-gradient(circle at 50% 45%, rgba(180, 83, 9, 0.24), rgba(6, 5, 8, 0.9) 65%),
-    var(--fnaf-bg);
-  background-size: cover;
-  background-position: center;
+  background: #0b070a;
 }
 
 .theme-fnaf .intro-bar-fill {
-  background: linear-gradient(90deg, #991b1b, #d97706, #fbbf24, #b91c1c);
-}
-
-.theme-fnaf .stage-card {
-  background-color: #121015;
-  background-image:
-    linear-gradient(180deg, rgba(17, 15, 20, 0.68), rgba(9, 8, 12, 0.84)),
-    var(--fnaf-panel);
-  background-size: cover;
-  background-position: center;
-  border-color: rgba(245, 158, 11, 0.18);
-  box-shadow: inset 0 0 1.4vh rgba(0, 0, 0, 0.65);
-  padding: 0.58vh 0.55vw;
+  background: #f59e0b;
 }
 
 .theme-fnaf .stage-grid {
-  gap: 0.72vh 0.85vw;
+  gap: 0.58vh 0.85vw;
+}
+
+.theme-fnaf .stage-card {
+  background: #1a1116;
+  border-color: #4a2d17;
+  padding: 0.46vh 0.5vw;
+}
+
+.theme-fnaf .stage-card .e {
+  font-size: clamp(1.12rem, 3.05vh, 2.05rem);
+}
+
+.theme-fnaf .stage-card .t {
+  font-size: clamp(0.68rem, 1.7vh, 1.04rem);
+  margin-top: 0.2vh;
+}
+
+.theme-fnaf .stage-card .d {
+  font-size: clamp(0.6rem, 1.32vh, 0.82rem);
+  color: #cbd5e1;
+  margin-top: 0.12vh;
 }
 
 .theme-fnaf .stage-card.sel {
   border-color: #fbbf24;
-  background-image:
-    linear-gradient(180deg, rgba(120, 53, 15, 0.48), rgba(24, 16, 12, 0.82)),
-    var(--fnaf-panel);
-  box-shadow: 0 0 2.6vh rgba(245, 158, 11, 0.42), inset 0 0 1.2vh rgba(251, 191, 36, 0.2);
-}
-
-.theme-fnaf .stage-card .d {
-  color: #cbd5e1;
+  background: #3e2314;
 }
 
 .theme-fnaf .stage-top-btn {
-  background-color: #141218;
-  background-image:
-    linear-gradient(180deg, rgba(22, 20, 26, 0.8), rgba(10, 9, 13, 0.9)),
-    var(--fnaf-panel);
-  background-size: cover;
-  border-color: rgba(245, 158, 11, 0.28);
+  background: #191015;
+  border-color: #5c3718;
 }
 
 .theme-fnaf .stage-top-btn.sel {
   border-color: #fbbf24;
-  box-shadow: 0 0 2vh rgba(245, 158, 11, 0.42);
+  background: #3e2314;
 }
 
 .theme-fnaf .stage-opt,
 .theme-fnaf .stage-mem-card {
-  background-color: #131117;
-  background-image:
-    linear-gradient(180deg, rgba(18, 16, 22, 0.72), rgba(10, 9, 13, 0.88)),
-    var(--fnaf-panel);
-  background-size: cover;
-  background-position: center;
-  border-color: rgba(245, 158, 11, 0.26);
+  background: #181015;
+  border-color: #5c3718;
 }
 
 .theme-fnaf .stage-opt.sel,
 .theme-fnaf .stage-mem-card.sel {
   border-color: #fbbf24;
-  box-shadow: 0 0 2.2vh rgba(245, 158, 11, 0.42);
+  background: #3d2415;
 }
 
 .theme-fnaf .stage-ach-panel,
 .theme-fnaf .stage-mode-panel {
-  background-color: #111014;
-  background-image:
-    linear-gradient(180deg, rgba(18, 16, 22, 0.88), rgba(9, 8, 12, 0.94)),
-    var(--fnaf-panel);
-  background-size: cover;
-  background-position: center;
-  border-color: rgba(245, 158, 11, 0.35);
+  background: #160f14;
+  border-color: #92400e;
 }
 
 .theme-fnaf .stage-toast {
-  background-color: #141116;
-  background-image:
-    linear-gradient(135deg, rgba(32, 22, 16, 0.92), rgba(12, 10, 14, 0.95)),
-    var(--fnaf-panel);
-  background-size: cover;
-  border-color: rgba(245, 158, 11, 0.8);
+  background: #1b1114;
+  border-color: #f59e0b;
 }
 
 .theme-fnaf .stage-legend {
+  margin-top: 0.9vh;
   color: rgba(253, 230, 138, 0.72);
 }
 
@@ -927,146 +863,104 @@ body,
 
 .stage-top-btn.phone {
   border-color: #ef4444;
-  background: linear-gradient(180deg, rgba(153, 27, 27, 0.92), rgba(69, 10, 10, 0.96));
+  background: #7f1d1d;
   color: #fef08a;
-  box-shadow: 0 0 2.4vh rgba(239, 68, 68, 0.6);
   animation: fnafPhoneRing 750ms ease-in-out infinite;
 }
 
 .stage-top-btn.phone.sel {
   border-color: #fde047;
-  box-shadow: 0 0 3vh rgba(250, 204, 21, 0.75);
 }
 
 /* ==========================================================================
-   MODO TEMÁTICA AMONG US — TEXTURAS ESPACIALES DE LA NAVE SKELD
+   MODO TEMÁTICA AMONG US — ESTILO RÁPIDO PARA ANDROID TV
    ========================================================================== */
 
 .stage-root.theme-amongus[data-game-bg="default"] {
-  background-color: #030812;
-  background-image:
-    linear-gradient(180deg, rgba(3, 8, 18, 0.68) 0%, rgba(6, 14, 28, 0.56) 50%, rgba(2, 6, 14, 0.84) 100%),
-    var(--amongus-bg);
-  background-size: cover;
-  background-position: center;
-}
-
-.amongus-star-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 2;
-  pointer-events: none;
-  background-image:
-    radial-gradient(circle at 18% 22%, rgba(34, 211, 238, 0.08), transparent 40%),
-    radial-gradient(circle at 82% 78%, rgba(239, 68, 68, 0.06), transparent 42%),
-    radial-gradient(circle at 50% 50%, transparent 56%, rgba(0, 0, 0, 0.52) 100%);
+  background-color: #040914;
 }
 
 .amongus-hazard-bar {
-  height: 1.3vh;
+  height: 0.5vh;
   width: 100%;
-  border-radius: 0.7vh;
-  margin: 0.4vh auto 1.1vh;
-  background-image: linear-gradient(rgba(0, 0, 0, 0.2), rgba(0, 0, 0, 0.2)), var(--amongus-tile);
-  background-size: auto 7vh;
-  background-repeat: repeat-x;
-  background-position: center;
-  border: 0.2vh solid rgba(34, 211, 238, 0.34);
-  box-shadow: 0 0.4vh 1.2vh rgba(0, 0, 0, 0.5);
+  border-radius: 999px;
+  margin: 0.25vh auto 0.85vh;
+  background: #0891b2;
 }
 
 .theme-amongus .stage-intro {
-  background:
-    radial-gradient(circle at 50% 45%, rgba(6, 182, 212, 0.26), rgba(3, 8, 18, 0.9) 65%),
-    var(--amongus-bg);
-  background-size: cover;
-  background-position: center;
+  background: #040914;
 }
 
 .theme-amongus .intro-bar-fill {
-  background: linear-gradient(90deg, #ef4444, #22d3ee, #38bdf8, #34d399);
+  background: #22d3ee;
 }
 
 .theme-amongus .stage-grid {
-  gap: 0.72vh 0.85vw;
+  gap: 0.58vh 0.85vw;
 }
 
 .theme-amongus .stage-card {
-  background-color: #0b1422;
-  background-image:
-    linear-gradient(180deg, rgba(13, 24, 40, 0.68), rgba(6, 12, 22, 0.86)),
-    var(--amongus-panel);
-  background-size: cover;
-  background-position: center;
-  border-color: rgba(34, 211, 238, 0.2);
-  box-shadow: inset 0 0 1.4vh rgba(0, 0, 0, 0.65);
-  padding: 0.58vh 0.55vw;
+  background: #0d1829;
+  border-color: #164e63;
+  padding: 0.46vh 0.5vw;
+}
+
+.theme-amongus .stage-card .e {
+  font-size: clamp(1.12rem, 3.05vh, 2.05rem);
+}
+
+.theme-amongus .stage-card .t {
+  font-size: clamp(0.68rem, 1.7vh, 1.04rem);
+  margin-top: 0.2vh;
+}
+
+.theme-amongus .stage-card .d {
+  font-size: clamp(0.6rem, 1.32vh, 0.82rem);
+  color: #cbd5e1;
+  margin-top: 0.12vh;
 }
 
 .theme-amongus .stage-card.sel {
   border-color: #22d3ee;
-  background-image:
-    linear-gradient(180deg, rgba(8, 145, 178, 0.44), rgba(10, 22, 38, 0.84)),
-    var(--amongus-panel);
-  box-shadow: 0 0 2.6vh rgba(34, 211, 238, 0.44), inset 0 0 1.2vh rgba(103, 232, 249, 0.22);
-}
-
-.theme-amongus .stage-card .d {
-  color: #cbd5e1;
+  background: #10354b;
 }
 
 .theme-amongus .stage-top-btn {
-  background-color: #0b1422;
-  background-image:
-    linear-gradient(180deg, rgba(16, 28, 46, 0.8), rgba(7, 13, 24, 0.92)),
-    var(--amongus-panel);
-  background-size: cover;
-  border-color: rgba(34, 211, 238, 0.3);
+  background: #0d1829;
+  border-color: #155e75;
 }
 
 .theme-amongus .stage-top-btn.sel {
   border-color: #22d3ee;
-  box-shadow: 0 0 2vh rgba(34, 211, 238, 0.42);
+  background: #10354b;
 }
 
 .theme-amongus .stage-opt,
 .theme-amongus .stage-mem-card {
-  background-color: #0c1524;
-  background-image:
-    linear-gradient(180deg, rgba(15, 26, 44, 0.74), rgba(7, 13, 24, 0.88)),
-    var(--amongus-panel);
-  background-size: cover;
-  background-position: center;
-  border-color: rgba(34, 211, 238, 0.28);
+  background: #0d1829;
+  border-color: #155e75;
 }
 
 .theme-amongus .stage-opt.sel,
 .theme-amongus .stage-mem-card.sel {
   border-color: #22d3ee;
-  box-shadow: 0 0 2.2vh rgba(34, 211, 238, 0.44);
+  background: #12374f;
 }
 
 .theme-amongus .stage-ach-panel,
 .theme-amongus .stage-mode-panel {
-  background-color: #091220;
-  background-image:
-    linear-gradient(180deg, rgba(13, 24, 40, 0.88), rgba(6, 12, 22, 0.95)),
-    var(--amongus-panel);
-  background-size: cover;
-  background-position: center;
-  border-color: rgba(34, 211, 238, 0.38);
+  background: #0b1424;
+  border-color: #0e7490;
 }
 
 .theme-amongus .stage-toast {
-  background-color: #0b1524;
-  background-image:
-    linear-gradient(135deg, rgba(14, 34, 52, 0.92), rgba(7, 14, 26, 0.95)),
-    var(--amongus-panel);
-  background-size: cover;
-  border-color: rgba(34, 211, 238, 0.8);
+  background: #0e2033;
+  border-color: #22d3ee;
 }
 
 .theme-amongus .stage-legend {
+  margin-top: 0.9vh;
   color: rgba(165, 243, 252, 0.74);
 }
 
@@ -1141,4 +1035,533 @@ body,
     transform: none !important;
   }
 }
+
+/* ==========================================================================
+   APARTADO DE IDIOMAS (ANDROID TV FAST)
+   ========================================================================== */
+
+.stage-lang-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.6vh 1.6vw;
+  margin-top: 2.2vh;
+}
+
+@media (max-width: 720px) {
+  .stage-lang-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.stage-lang-card {
+  display: flex;
+  align-items: center;
+  gap: 1.4vw;
+  padding: 2vh 1.8vw;
+  border-radius: 1.6vh;
+  border: 0.38vh solid #283548;
+  background: #131c2c;
+  text-align: left;
+  cursor: pointer;
+}
+
+.stage-lang-card.sel {
+  border-color: #ffffff;
+  background: #22344f;
+  transform: scale(1.03);
+}
+
+.stage-lang-card.active {
+  border-color: #38bdf8;
+}
+
+.stage-lang-flag {
+  font-size: clamp(2rem, 5.2vh, 3.4rem);
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.stage-lang-name {
+  font-family: "Outfit", Arial, sans-serif;
+  font-size: clamp(1.1rem, 2.8vh, 1.75rem);
+  font-weight: 800;
+  color: #ffffff;
+  line-height: 1.15;
+}
+
+.stage-lang-sub {
+  font-size: clamp(0.75rem, 1.65vh, 1rem);
+  color: #94a3b8;
+  margin-top: 0.3vh;
+}
+
+.stage-lang-badge {
+  margin-left: auto;
+  font-size: clamp(0.72rem, 1.55vh, 0.95rem);
+  font-weight: 800;
+  color: #38bdf8;
+  white-space: nowrap;
+}
+
+/* ==========================================================================
+   COPA TORNEO — PANTALLA ESTILO 2 3 4 PLAYER MINI GAMES
+   ========================================================================== */
+
+.cup-screen {
+  position: relative;
+  z-index: 2;
+  width: 93vw;
+  max-width: 1480px;
+  height: 94vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.2vh 1vw;
+  text-align: center;
+}
+
+.cup-header {
+  width: 100%;
+}
+
+.cup-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1.1vw;
+  flex-wrap: wrap;
+}
+
+.cup-trophy-icon {
+  font-size: clamp(1.6rem, 4.4vh, 2.8rem);
+  line-height: 1;
+}
+
+.cup-title {
+  margin: 0;
+  font-family: "Outfit", Arial, sans-serif;
+  font-size: clamp(1.7rem, 4.6vh, 3rem);
+  font-weight: 800;
+  letter-spacing: 0.18vh;
+}
+
+.cup-diff-tag {
+  font-size: clamp(0.8rem, 2vh, 1.15rem);
+  font-weight: 800;
+  padding: 0.35vh 0.9vw;
+  border-radius: 0.9vh;
+  border: 0.24vh solid #283548;
+  background: #101827;
+}
+
+.cup-sub {
+  margin: 0.5vh 0 0;
+  font-size: clamp(0.85rem, 2.05vh, 1.2rem);
+  color: #cbd5e1;
+}
+
+.cup-setup-controls {
+  width: min(86vw, 960px);
+  display: flex;
+  flex-direction: column;
+  gap: 1.2vh;
+}
+
+.cup-setup-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.4vw;
+  padding: 1.3vh 1.8vw;
+  border-radius: 1.5vh;
+  border: 0.34vh solid #283548;
+  background: #101827;
+  cursor: pointer;
+}
+
+.cup-setup-row.sel {
+  border-color: #ffffff;
+  background: #1d2b42;
+  transform: scale(1.02);
+}
+
+.cup-setup-label {
+  font-family: "Outfit", Arial, sans-serif;
+  font-size: clamp(0.95rem, 2.4vh, 1.4rem);
+  font-weight: 800;
+  color: #f8fafc;
+}
+
+.cup-setup-picker {
+  display: flex;
+  align-items: center;
+  gap: 1.1vw;
+}
+
+.cup-arrow-btn {
+  padding: 0.45vh 1vw;
+  border-radius: 0.9vh;
+  border: 0.24vh solid #334155;
+  background: #172336;
+  color: #ffffff;
+  font-size: clamp(0.85rem, 2.1vh, 1.25rem);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.cup-player-dots {
+  display: flex;
+  align-items: center;
+  gap: 0.55vw;
+}
+
+.cup-player-dot {
+  width: 3.8vh;
+  height: 3.8vh;
+  border-radius: 0.9vh;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: clamp(0.85rem, 2vh, 1.2rem);
+  color: #ffffff;
+}
+
+.cup-rounds-val {
+  min-width: 14vw;
+  font-family: "Outfit", Arial, sans-serif;
+  font-size: clamp(1rem, 2.6vh, 1.5rem);
+  font-weight: 800;
+  color: #fde047;
+  font-variant-numeric: tabular-nums;
+}
+
+.cup-lineup-box {
+  width: 100%;
+  background: #0d1421;
+  border: 0.28vh solid #222e42;
+  border-radius: 1.6vh;
+  padding: 1.2vh 1.2vw;
+}
+
+.cup-lineup-heading {
+  font-size: clamp(0.72rem, 1.65vh, 0.95rem);
+  font-weight: 800;
+  color: #94a3b8;
+  letter-spacing: 0.14vh;
+  margin-bottom: 0.9vh;
+}
+
+.cup-track {
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.7vh 0.65vw;
+  margin-top: 0.8vh;
+}
+
+.cup-node {
+  position: relative;
+  min-width: 8.4vw;
+  max-width: 11.2vw;
+  padding: 0.75vh 0.6vw;
+  border-radius: 1.2vh;
+  border: 0.28vh solid #283548;
+  background: #141e2e;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2vh;
+}
+
+.cup-node.done {
+  border-color: #166534;
+  background: #0f241c;
+  opacity: 0.86;
+}
+
+.cup-node.current {
+  border-color: #fde047;
+  background: #2b2410;
+  transform: scale(1.06);
+}
+
+.cup-node-trophy {
+  border-color: #b45309;
+  background: #24190c;
+}
+
+.cup-node-num {
+  font-size: clamp(0.58rem, 1.3vh, 0.78rem);
+  font-weight: 800;
+  color: #fde047;
+}
+
+.cup-node-emoji {
+  font-size: clamp(1.25rem, 3vh, 2rem);
+  line-height: 1.05;
+}
+
+.cup-node-name {
+  font-size: clamp(0.62rem, 1.4vh, 0.84rem);
+  font-weight: 700;
+  color: #f8fafc;
+  line-height: 1.1;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cup-node-winner-dot {
+  position: absolute;
+  top: 0.45vh;
+  right: 0.45vh;
+  width: 1.1vh;
+  height: 1.1vh;
+  border-radius: 999px;
+}
+
+.cup-columns {
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  gap: 1.3vw;
+  margin: 1.2vh 0;
+}
+
+.cup-col {
+  flex: 1;
+  max-width: 220px;
+  min-width: 105px;
+  background: #101827;
+  border: 0.36vh solid #283548;
+  border-radius: 1.8vh;
+  padding: 1.1vh 0.8vw;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.cup-col.leader {
+  background: #1a2338;
+}
+
+.cup-col-rank {
+  font-family: "Outfit", Arial, sans-serif;
+  font-size: clamp(0.95rem, 2.3vh, 1.4rem);
+  font-weight: 800;
+  color: #fde047;
+}
+
+.cup-col-avatar {
+  margin: 0.4vh 0;
+}
+
+.cup-col-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 5.2vh;
+  height: 5.2vh;
+  border-radius: 1.3vh;
+  font-family: "Outfit", Arial, sans-serif;
+  font-size: clamp(1rem, 2.3vh, 1.4rem);
+  font-weight: 800;
+  color: #ffffff;
+}
+
+.cup-col-bar-wrap {
+  position: relative;
+  width: 62%;
+  flex: 1;
+  min-height: 13vh;
+  background: #080d16;
+  border: 0.22vh solid #233044;
+  border-radius: 1.2vh;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  overflow: hidden;
+  margin: 0.6vh 0;
+}
+
+.cup-col-bar {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 0.6vh;
+  border-radius: 0.9vh 0.9vh 0 0;
+  transition: height 220ms ease-out;
+}
+
+.cup-col-pts {
+  font-family: "Outfit", Arial, sans-serif;
+  font-size: clamp(1.1rem, 3vh, 1.9rem);
+  font-weight: 800;
+  color: #ffffff;
+  font-variant-numeric: tabular-nums;
+}
+
+.cup-col-delta {
+  position: absolute;
+  top: 0.5vh;
+  right: 0.4vw;
+  font-size: clamp(0.75rem, 1.7vh, 1rem);
+  font-weight: 800;
+  color: #4ade80;
+  font-variant-numeric: tabular-nums;
+}
+
+.cup-col-name {
+  font-family: "Outfit", Arial, sans-serif;
+  font-size: clamp(0.85rem, 2vh, 1.2rem);
+  font-weight: 800;
+  color: #ffffff;
+  white-space: nowrap;
+}
+
+.cup-col-medals {
+  display: flex;
+  align-items: center;
+  gap: 0.5vw;
+  font-size: clamp(0.72rem, 1.6vh, 0.96rem);
+  color: #cbd5e1;
+  margin-top: 0.3vh;
+  font-variant-numeric: tabular-nums;
+}
+
+.cup-next-banner {
+  width: 100%;
+  background: #101827;
+  border: 0.32vh solid #283548;
+  border-radius: 1.8vh;
+  padding: 1.3vh 1.8vw;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1.2vw;
+  text-align: left;
+}
+
+.cup-next-emoji {
+  font-size: clamp(2rem, 5.4vh, 3.4rem);
+  line-height: 1;
+}
+
+.cup-next-info {
+  flex: 1;
+  min-width: 200px;
+}
+
+.cup-next-kicker {
+  font-size: clamp(0.68rem, 1.5vh, 0.88rem);
+  font-weight: 800;
+  letter-spacing: 0.12vh;
+  color: #38bdf8;
+}
+
+.cup-next-title {
+  font-family: "Outfit", Arial, sans-serif;
+  font-size: clamp(1.1rem, 2.8vh, 1.7rem);
+  font-weight: 800;
+  color: #ffffff;
+}
+
+.cup-next-desc {
+  font-size: clamp(0.76rem, 1.7vh, 1rem);
+  color: #94a3b8;
+}
+
+.cup-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 1vw;
+}
+
+.cup-actions.inline {
+  justify-content: flex-end;
+}
+
+.cup-btn {
+  padding: 1.15vh 1.8vw;
+  border-radius: 1.3vh;
+  border: 0.34vh solid #283548;
+  background: #141e2e;
+  color: #e2e8f0;
+  font-family: "Outfit", Arial, sans-serif;
+  font-size: clamp(0.88rem, 2.2vh, 1.32rem);
+  font-weight: 800;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.cup-btn.primary {
+  border-color: #15803d;
+  background: #166534;
+  color: #ffffff;
+}
+
+.cup-btn.sel {
+  border-color: #ffffff;
+  transform: scale(1.05);
+}
+
+.cup-btn.primary.sel {
+  background: #22c55e;
+  color: #052e16;
+}
+
+.cup-btn.secondary.sel {
+  background: #24354f;
+  color: #ffffff;
+}
+
+.cup-champ-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.cup-champ-trophy {
+  font-size: clamp(3.5rem, 11vh, 6.5rem);
+  line-height: 1;
+}
+
+.cup-champ-kicker {
+  font-size: clamp(0.9rem, 2.4vh, 1.4rem);
+  font-weight: 800;
+  letter-spacing: 0.18vh;
+  margin-top: 0.5vh;
+}
+
+.cup-champ-name {
+  font-family: "Outfit", Arial, sans-serif;
+  font-size: clamp(1.8rem, 5.2vh, 3.3rem);
+  font-weight: 800;
+  color: #ffffff;
+  margin-top: 0.2vh;
+}
+
+@media (max-width: 900px) {
+  .cup-node {
+    min-width: 14vw;
+    max-width: 24vw;
+  }
+  .cup-col {
+    min-width: 82px;
+  }
+}
+
 

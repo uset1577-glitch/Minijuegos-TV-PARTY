@@ -113,6 +113,19 @@ export interface StagePlayer {
 
 export type ThemeMode = 'classic' | 'fnaf' | 'amongus';
 
+export type GameDifficulty = 'easy' | 'normal' | 'hard';
+
+export type AppLanguage = 'es' | 'en' | 'pt' | 'fr';
+
+export const DIFFICULTY_META: Record<
+  GameDifficulty,
+  {label: string; short: string; emoji: string; accent: string}
+> = {
+  easy: {label: 'Fácil', short: 'Fácil', emoji: '🟢', accent: '#22c55e'},
+  normal: {label: 'Normal', short: 'Normal', emoji: '🔵', accent: '#38bdf8'},
+  hard: {label: 'Difícil', short: 'Difícil', emoji: '🔴', accent: '#ef4444'},
+};
+
 export interface StageGameProps {
   players: StagePlayer[];
   onFinish: (
@@ -126,4 +139,6 @@ export interface StageGameProps {
   registerKeyHandler: (handler: ((k: RemoteKey) => void) | null) => void;
   setBg: (bg: string) => void;
   themeMode?: ThemeMode;
+  difficulty?: GameDifficulty;
+  lang?: AppLanguage;
 }

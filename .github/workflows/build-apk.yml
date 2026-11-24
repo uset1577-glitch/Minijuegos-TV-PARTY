@@ -34,7 +34,7 @@ jobs:
           echo "version_code=${CODE}" >> "$GITHUB_OUTPUT"
           echo "version_name=${NAME}" >> "$GITHUB_OUTPUT"
           echo "manifest_url=https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/version.json" >> "$GITHUB_OUTPUT"
-          echo "apk_url=https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/MandoPartyTV.apk" >> "$GITHUB_OUTPUT"
+          echo "apk_url=https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/CgamesTVPARTY.apk" >> "$GITHUB_OUTPUT"
 
       - name: Install dependencies and build web bundle
         env:
@@ -76,11 +76,11 @@ jobs:
               -Pandroid.injected.signing.key.alias="$ANDROID_KEY_ALIAS" \
               -Pandroid.injected.signing.key.password="$ANDROID_KEY_PASS"
             cd ..
-            cp android/app/build/outputs/apk/release/app-release.apk release-out/MandoPartyTV.apk
+            cp android/app/build/outputs/apk/release/app-release.apk release-out/CgamesTVPARTY.apk
           else
             cd android && ./gradlew assembleDebug
             cd ..
-            cp android/app/build/outputs/apk/debug/app-debug.apk release-out/MandoPartyTV.apk
+            cp android/app/build/outputs/apk/debug/app-debug.apk release-out/CgamesTVPARTY.apk
           fi
 
           cat <<EOF > release-out/version.json
@@ -88,7 +88,7 @@ jobs:
             "versionCode": ${{ steps.ver.outputs.version_code }},
             "versionName": "${{ steps.ver.outputs.version_name }}",
             "apkUrl": "${{ steps.ver.outputs.apk_url }}",
-            "notes": "Nueva actualizacion de Mando Party TV lista para instalar."
+            "notes": "Nueva actualizacion de CgamesTVPARTY lista para instalar."
           }
           EOF
 
@@ -96,15 +96,15 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.ver.outputs.version_name }}
-          name: Mando Party TV v${{ steps.ver.outputs.version_name }}
-          body: "Actualizacion automatica v${{ steps.ver.outputs.version_name }} para Android TV."
+          name: CgamesTVPARTY v${{ steps.ver.outputs.version_name }}
+          body: "Actualizacion automatica v${{ steps.ver.outputs.version_name }} de CgamesTVPARTY para Android TV."
           make_latest: true
           files: |
-            release-out/MandoPartyTV.apk
+            release-out/CgamesTVPARTY.apk
             release-out/version.json
 
       - name: Upload Android TV APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: MandoPartyTV-apk
-          path: release-out/MandoPartyTV.apk
+          name: CgamesTVPARTY-apk
+          path: release-out/CgamesTVPARTY.apk

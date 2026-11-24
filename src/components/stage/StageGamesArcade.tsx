@@ -1,11 +1,15 @@
 import {useCallback, useEffect, useRef, useState} from 'react';
 import {
+  AppLanguage,
+  DIFFICULTY_META,
+  GameDifficulty,
   PLAYER_STAGE_COLORS,
   RemoteKey,
   StageGameProps,
   playControlClick,
   tone,
 } from '../../utils/stageAudio';
+import {UI_TEXT, getDifficultyLabel, loadInitialLanguage} from '../../utils/i18n';
 
 /* -------------------------------------------------------------------------- */
 /* SHARED PASS SCREEN HELPER                                                  */
@@ -15,17 +19,31 @@ export function PassScreen({
   playerName,
   subtitle,
   onReady,
+  difficulty,
+  lang = loadInitialLanguage(),
 }: {
   playerName: string;
   subtitle: string;
   onReady: () => void;
+  difficulty?: GameDifficulty;
+  lang?: AppLanguage;
 }) {
+  const t = UI_TEXT[lang];
   return (
     <div className="stage-c cursor-pointer" onClick={onReady}>
-      <div className="stage-sub">Pásale el control a</div>
+      {difficulty && (
+        <div
+          className="mb-2 inline-block rounded-lg border border-white/25 bg-black/45 px-3 py-0.5 text-[2.4vh] font-bold"
+          style={{color: DIFFICULTY_META[difficulty].accent}}
+        >
+          {DIFFICULTY_META[difficulty].emoji} {t.difficultyWord}:{' '}
+          {getDifficultyLabel(difficulty, lang)}
+        </div>
+      )}
+      <div className="stage-sub">{t.passTo}</div>
       <div className="stage-big">{playerName}</div>
       <div className="stage-sub">{subtitle}</div>
-      <div className="stage-hint">Presiona OK cuando lo tengas</div>
+      <div className="stage-hint">{t.pressOkReady}</div>
     </div>
   );
 }
@@ -52,11 +70,13 @@ export function BombaStage({
   registerKeyHandler,
   setBg,
   themeMode = 'classic',
+  difficulty = 'normal',
 }: StageGameProps) {
   const isFnaf = themeMode === 'fnaf';
   const isAu = themeMode === 'amongus';
   const np = players.length;
-  const MAX_BURNS = 2;
+  const MAX_BURNS = difficulty === 'easy' ? 3 : 2;
+  const revPassChance = difficulty === 'easy' ? 0 : difficulty === 'hard' ? 0.45 : 0.25;
 
   const [phase, setPhase] = useState<'PASS' | 'ALIVE' | 'BOOM'>('PASS');
   const [holder, setHolder] = useState(0);
@@ -88,16 +108,33 @@ export function BombaStage({
 
   const startRound = useCallback(() => {
     clearTimers();
-    const minMs = isAu ? 5200 : Math.max(3600, 5200 - roundRef.current * 450);
-    const tot = minMs + Math.random() * (isAu ? 5500 : 5200);
+    const minMs =
+      difficulty === 'easy'
+        ? isAu
+          ? 6500
+          : 6200
+        : difficulty === 'hard'
+          ? isAu
+            ? 3400
+            : Math.max(2400, 3800 - roundRef.current * 420)
+          : isAu
+            ? 5200
+            : Math.max(3600, 5200 - roundRef.current * 450);
+    const randMs =
+      difficulty === 'easy' ? 4600 : difficulty === 'hard' ? 3000 : isAu ? 5500 : 5200;
+    const tot = minMs + Math.random() * randMs;
     totRef.current = tot;
     t0Ref.current = Date.now();
     lastPassRef.current = Date.now();
     aliveRef.current = true;
-    const nextDir: 1 | -1 = !isAu && Math.random() < 0.4 ? -1 : 1;
+    const revStartProb = difficulty === 'easy' ? 0 : difficulty === 'hard' ? 0.55 : 0.4;
+    const nextDir: 1 | -1 = !isAu && Math.random() < revStartProb ? -1 : 1;
     dirStepRef.current = nextDir;
     setDirStep(nextDir);
-    const nextKey: PassButtonKind = !isAu && roundRef.current > 1 ? randomPassBtn() : 'ok';
+    const nextKey: PassButtonKind =
+      !isAu && (difficulty === 'hard' || (difficulty === 'normal' && roundRef.current > 1))
+        ? randomPassBtn()
+        : 'ok';
     reqBtnRef.current = nextKey;
     setReqBtn(nextKey);
     setBoomCooldown(false);
@@ -137,7 +174,7 @@ export function BombaStage({
         setBoomCooldown(false);
       }, 2100);
     }, tot);
-  }, [isAu]);
+  }, [isAu, difficulty]);
 
   useEffect(() => {
     if (phase === 'BOOM') setBg('#7f1d1d');
@@ -184,10 +221,10 @@ export function BombaStage({
         holderRef.current = nextHolder;
         setHolder(nextHolder);
 
-        const nextBtn = isAu ? 'ok' : randomPassBtn();
+        const nextBtn = isAu || difficulty === 'easy' ? 'ok' : randomPassBtn();
         reqBtnRef.current = nextBtn;
         setReqBtn(nextBtn);
-        if (!isAu && Math.random() < 0.25) {
+        if (!isAu && revPassChance > 0 && Math.random() < revPassChance) {
           const flipped: 1 | -1 = dirStepRef.current === 1 ? -1 : 1;
           dirStepRef.current = flipped;
           setDirStep(flipped);
@@ -201,7 +238,7 @@ export function BombaStage({
         }
       }
     },
-    [phase, np, burns, holder, boomCooldown, isAu, startRound, finishGame],
+    [phase, np, burns, holder, boomCooldown, isAu, difficulty, revPassChance, MAX_BURNS, startRound, finishGame],
   );
 
   useEffect(() => {
@@ -218,12 +255,13 @@ export function BombaStage({
     return (
       <PassScreen
         playerName={players[holder].name}
+        difficulty={difficulty}
         subtitle={
           isFnaf
-            ? 'Pasa a Carl el Cupcake con la tecla indicada (OK, ▲ o ▶). ¡2 sustos y pierdes!'
+            ? `Pasa a Carl el Cupcake con la tecla indicada (${difficulty === 'easy' ? 'solo OK' : 'OK, ▲ o ▶'}). ¡${MAX_BURNS} sustos y pierdes!`
             : isAu
-              ? 'Pasa el núcleo inestable presionando solo OK antes de la sobrecarga. ¡2 fallos y pierdes!'
-              : 'Mecha corta y tecla aleatoria (OK, ▲ o ▶). ¡2 quemadas y termina!'
+              ? `Pasa el núcleo inestable presionando solo OK antes de la sobrecarga. ¡${MAX_BURNS} fallos y pierdes!`
+              : `Mecha ${difficulty === 'hard' ? 'ultrarrápida' : difficulty === 'easy' ? 'suave' : 'corta'}. ¡${MAX_BURNS} quemadas y termina!`
         }
         onReady={() => passBomb('ok')}
       />
@@ -284,12 +322,15 @@ export function ReflejosStage({
   registerKeyHandler,
   setBg,
   themeMode = 'classic',
+  difficulty = 'normal',
 }: StageGameProps) {
   const isFnaf = themeMode === 'fnaf';
   const isAu = themeMode === 'amongus';
   const np = players.length;
   const ROUNDS = 3;
   const totalTurns = ROUNDS * np;
+  const LIMIT_MS = difficulty === 'easy' ? 1450 : difficulty === 'hard' ? 640 : 950;
+  const PEN_MS = difficulty === 'easy' ? 900 : difficulty === 'hard' ? 1600 : 1200;
 
   const [qi, setQi] = useState(0);
   const [phase, setPhase] = useState<'PASS' | 'WAIT' | 'FAKE' | 'GO' | 'EARLY' | 'RESULT'>('PASS');
@@ -325,19 +366,24 @@ export function ReflejosStage({
       setEarlyReason(reason);
       setTotals((prev) => {
         const next = [...prev];
-        next[pIdx] += 1200;
+        next[pIdx] += PEN_MS;
         return next;
       });
       setPhase('EARLY');
     },
-    [],
+    [PEN_MS],
   );
 
   const startWait = useCallback(
     (pIdx: number, rnd: number) => {
       clearAll();
       setPhase('WAIT');
-      const hasFake = rnd >= 2 || Math.random() < 0.55;
+      const hasFake =
+        difficulty === 'easy'
+          ? rnd >= 3 && Math.random() < 0.35
+          : difficulty === 'hard'
+            ? Math.random() < 0.85
+            : rnd >= 2 || Math.random() < 0.55;
 
       const scheduleGo = (delay: number) => {
         waitTimerRef.current = window.setTimeout(() => {
@@ -345,8 +391,8 @@ export function ReflejosStage({
           tone(920, 0.2);
           setPhase('GO');
           timeoutRef.current = window.setTimeout(() => {
-            triggerPenalty('¡Demasiado lento (> 950 ms)! (+1200 ms)', pIdx);
-          }, 950);
+            triggerPenalty(`¡Demasiado lento (> ${LIMIT_MS} ms)! (+${PEN_MS} ms)`, pIdx);
+          }, LIMIT_MS);
         }, delay);
       };
 
@@ -356,14 +402,22 @@ export function ReflejosStage({
           setPhase('FAKE');
           waitTimerRef.current = window.setTimeout(() => {
             setPhase('WAIT');
-            scheduleGo(850 + Math.random() * 1900);
-          }, 720);
-        }, 1000 + Math.random() * 1400);
+            scheduleGo(
+              difficulty === 'hard'
+                ? 450 + Math.random() * 1000
+                : difficulty === 'easy'
+                  ? 1400 + Math.random() * 2000
+                  : 850 + Math.random() * 1900,
+            );
+          }, difficulty === 'hard' ? 540 : 720);
+        }, difficulty === 'hard' ? 650 + Math.random() * 950 : 1000 + Math.random() * 1400);
       } else {
-        scheduleGo(1300 + Math.random() * 2400);
+        scheduleGo(
+          difficulty === 'hard' ? 750 + Math.random() * 1500 : 1300 + Math.random() * 2400,
+        );
       }
     },
-    [triggerPenalty],
+    [difficulty, LIMIT_MS, PEN_MS, triggerPenalty],
   );
 
   const advance = useCallback(() => {
@@ -398,12 +452,12 @@ export function ReflejosStage({
     } else if (phase === 'WAIT' || phase === 'FAKE') {
       triggerPenalty(
         phase === 'FAKE'
-          ? '¡Caíste en el AMAGO trampa! (+1200 ms)'
+          ? `¡Caíste en el AMAGO trampa! (+${PEN_MS} ms)`
           : isFnaf
-            ? 'Cerraste antes de tiempo (+1200 ms)'
+            ? `Cerraste antes de tiempo (+${PEN_MS} ms)`
             : isAu
-              ? '¡Falsa alarma en Cafetería! (+1200 ms)'
-              : '¡Presionaste antes de verde! (+1200 ms)',
+              ? `¡Falsa alarma en Cafetería! (+${PEN_MS} ms)`
+              : `¡Presionaste antes de verde! (+${PEN_MS} ms)`,
         playerIdx,
       );
     } else if (phase === 'GO') {
@@ -420,7 +474,7 @@ export function ReflejosStage({
     } else {
       advance();
     }
-  }, [phase, playerIdx, roundNum, isFnaf, isAu, startWait, triggerPenalty, advance]);
+  }, [phase, playerIdx, roundNum, PEN_MS, isFnaf, isAu, startWait, triggerPenalty, advance]);
 
   useEffect(() => {
     registerKeyHandler((k: RemoteKey) => {
@@ -432,12 +486,13 @@ export function ReflejosStage({
     return (
       <PassScreen
         playerName={players[playerIdx].name}
+        difficulty={difficulty}
         subtitle={
           isFnaf
-            ? `Noche ${roundNum}/${ROUNDS} · ¡Cuidado con los amagos! Tienes <950 ms al ver a Foxy`
+            ? `Noche ${roundNum}/${ROUNDS} · ¡Cuidado con los amagos! Tienes <${LIMIT_MS} ms al ver a Foxy`
             : isAu
-              ? `Ronda ${roundNum}/${ROUNDS} · Ignora los amagos morados y pulsa en <950 ms al ver VERDE`
-              : `Ronda ${roundNum}/${ROUNDS} · ¡Habrá amagos trampa! Pulsa en <950 ms solo en VERDE`
+              ? `Ronda ${roundNum}/${ROUNDS} · Ignora los amagos morados y pulsa en <${LIMIT_MS} ms al ver VERDE`
+              : `Ronda ${roundNum}/${ROUNDS} · ¡Habrá amagos trampa! Pulsa en <${LIMIT_MS} ms solo en VERDE`
         }
         onReady={handleOk}
       />
@@ -539,14 +594,17 @@ export function SimonStage({
   registerKeyHandler,
   setBg,
   themeMode = 'classic',
+  difficulty = 'normal',
 }: StageGameProps) {
   const isFnaf = themeMode === 'fnaf';
   const isAu = themeMode === 'amongus';
   const np = players.length;
+  const seedLen = difficulty === 'easy' ? 2 : difficulty === 'hard' ? 4 : 3;
+
   const [alive, setAlive] = useState<number[]>(() => Array.from({length: np}, (_, i) => i));
   const [eliminated, setEliminated] = useState<number[]>([]);
   const [turnIndex, setTurnIndex] = useState(0);
-  const [seq, setSeq] = useState<SimonDir[]>(() => makeSeedSimon(3));
+  const [seq, setSeq] = useState<SimonDir[]>(() => makeSeedSimon(seedLen));
   const [phase, setPhase] = useState<'PASS' | 'WATCH' | 'INPUT' | 'FAIL'>('PASS');
   const [lit, setLit] = useState<SimonDir | null>(null);
   const [inputIdx, setInputIdx] = useState(0);
@@ -585,12 +643,12 @@ export function SimonStage({
         : [...eliminated, currentPlayer];
       setAlive(nextAlive);
       setEliminated(nextElim);
-      setSeq(makeSeedSimon(3));
+      setSeq(makeSeedSimon(seedLen));
       setTurnIndex((prev) => prev % Math.max(1, nextAlive.length));
       setMsg(reasonMsg);
       setPhase('FAIL');
     },
-    [alive, currentPlayer, eliminated],
+    [alive, currentPlayer, eliminated, seedLen],
   );
 
   const startWatch = useCallback(
@@ -605,7 +663,12 @@ export function SimonStage({
         }`,
       );
 
-      const stepMs = Math.max(330, 560 - seqSnapshot.length * 26);
+      const stepMs =
+        difficulty === 'easy'
+          ? Math.max(460, 720 - seqSnapshot.length * 20)
+          : difficulty === 'hard'
+            ? Math.max(230, 410 - seqSnapshot.length * 24)
+            : Math.max(330, 560 - seqSnapshot.length * 26);
       seqSnapshot.forEach((d, idx) => {
         const t1 = window.setTimeout(() => {
           setLit(d);
@@ -623,7 +686,12 @@ export function SimonStage({
         setPhase('INPUT');
         setMsg(`${players[playerId].name} · repite (0/${seqSnapshot.length}) + 1 nueva`);
 
-        const limitMs = 5500 + seqSnapshot.length * 950;
+        const limitMs =
+          difficulty === 'easy'
+            ? 7500 + seqSnapshot.length * 1200
+            : difficulty === 'hard'
+              ? 3800 + seqSnapshot.length * 720
+              : 5500 + seqSnapshot.length * 950;
         const endAt = performance.now() + limitMs;
         inputIvRef.current = window.setInterval(() => {
           const left = Math.max(0, endAt - performance.now());
@@ -635,7 +703,7 @@ export function SimonStage({
       }, seqSnapshot.length * stepMs + 320);
       timersRef.current.push(endT);
     },
-    [players, isFnaf, isAu, eliminatePlayer],
+    [players, isFnaf, isAu, difficulty, eliminatePlayer],
   );
 
   const handleKey = useCallback(
@@ -666,7 +734,7 @@ export function SimonStage({
               setAlive(Array.from({length: np}, (_, i) => i));
               setEliminated([]);
               setTurnIndex(0);
-              setSeq(makeSeedSimon(3));
+              setSeq(makeSeedSimon(seedLen));
               setPhase('PASS');
             },
           );
@@ -723,6 +791,7 @@ export function SimonStage({
       players,
       isFnaf,
       isAu,
+      seedLen,
       startWatch,
       eliminatePlayer,
       onFinish,
@@ -737,6 +806,7 @@ export function SimonStage({
     return (
       <PassScreen
         playerName={players[currentPlayer].name}
+        difficulty={difficulty}
         subtitle={
           isFnaf
             ? `Caja de Puppet (${seq.length} notas): repite rápido contra el reloj y agrega 1`
@@ -809,10 +879,15 @@ export function MachacaStage({
   registerKeyHandler,
   setBg,
   themeMode = 'classic',
+  difficulty = 'normal',
 }: StageGameProps) {
   const isFnaf = themeMode === 'fnaf';
   const isAu = themeMode === 'amongus';
   const np = players.length;
+  const DUR_MS = difficulty === 'easy' ? 12000 : difficulty === 'hard' ? 10000 : 11000;
+  const DECAY_MS = difficulty === 'easy' ? 680 : difficulty === 'hard' ? 260 : 420;
+  const HEAT_PEN = difficulty === 'easy' ? 2 : difficulty === 'hard' ? 6 : 4;
+
   const [ti, setTi] = useState(0);
   const [phase, setPhase] = useState<'PASS' | 'COUNT' | 'RUN' | 'DONE'>('PASS');
   const [countNum, setCountNum] = useState(3);
@@ -857,24 +932,29 @@ export function MachacaStage({
         setPct(100);
         setPhase('RUN');
         const startAt = Date.now();
-        const endAt = startAt + 11000;
+        const endAt = startAt + DUR_MS;
 
         decayTimerRef.current = window.setInterval(() => {
           if (tapsRef.current > 0) {
             tapsRef.current = Math.max(0, tapsRef.current - 1);
             setTaps(tapsRef.current);
           }
-        }, 420);
+        }, DECAY_MS);
 
         timerRef.current = window.setInterval(() => {
           const now = Date.now();
           const elapsed = now - startAt;
           const left = endAt - now;
-          setPct(Math.max(0, left / 110));
+          setPct(Math.max(0, (left / DUR_MS) * 100));
 
-          // Dos breves fases de sobrecalentamiento (3.2s-4.2s y 7.1s-8.1s)
           const isHot =
-            (elapsed >= 3200 && elapsed <= 4200) || (elapsed >= 7100 && elapsed <= 8100);
+            difficulty === 'easy'
+              ? elapsed >= 5000 && elapsed <= 5900
+              : difficulty === 'hard'
+                ? (elapsed >= 2000 && elapsed <= 2900) ||
+                  (elapsed >= 4700 && elapsed <= 5700) ||
+                  (elapsed >= 7400 && elapsed <= 8400)
+                : (elapsed >= 3200 && elapsed <= 4200) || (elapsed >= 7100 && elapsed <= 8100);
           if (isHot !== overheatRef.current) {
             overheatRef.current = isHot;
             setOverheat(isHot);
@@ -899,7 +979,7 @@ export function MachacaStage({
       }
     }, 650);
     timerRef.current = iv;
-  }, [ti]);
+  }, [ti, difficulty, DUR_MS, DECAY_MS]);
 
   const handleOk = useCallback(() => {
     if (phase === 'PASS') {
@@ -907,7 +987,7 @@ export function MachacaStage({
       startCountdown();
     } else if (phase === 'RUN') {
       if (overheatRef.current) {
-        tapsRef.current = Math.max(0, tapsRef.current - 4);
+        tapsRef.current = Math.max(0, tapsRef.current - HEAT_PEN);
         setTaps(tapsRef.current);
         tone(125, 0.22, 'sawtooth', 0.14);
       } else {
@@ -938,7 +1018,7 @@ export function MachacaStage({
         setPhase('PASS');
       }
     }
-  }, [phase, ti, np, scores, isFnaf, isAu, startCountdown, onFinish]);
+  }, [phase, ti, np, scores, HEAT_PEN, isFnaf, isAu, startCountdown, onFinish]);
 
   useEffect(() => {
     registerKeyHandler((k: RemoteKey) => {
@@ -947,15 +1027,17 @@ export function MachacaStage({
   }, [registerKeyHandler, handleOk]);
 
   if (phase === 'PASS') {
+    const secs = Math.round(DUR_MS / 1000);
     return (
       <PassScreen
         playerName={players[ti].name}
+        difficulty={difficulty}
         subtitle={
           isFnaf
-            ? 'Alumbra a Foxy 11s: la pila decae sola y ¡NO pulses cuando se sobrecaliente (-4)!'
+            ? `Alumbra a Foxy ${secs}s: la pila decae sola y ¡NO pulses cuando se sobrecaliente (-${HEAT_PEN})!`
             : isAu
-              ? 'Escudos 11s: la carga decae sola y ¡NO pulses en sobrecarga roja (-4)!'
-              : 'Machaca OK 11s: la barra baja sola y ¡NO pulses durante ALERTA ROJA (-4)!'
+              ? `Escudos ${secs}s: la carga decae sola y ¡NO pulses en sobrecarga roja (-${HEAT_PEN})!`
+              : `Machaca OK ${secs}s: la barra baja sola y ¡NO pulses durante ALERTA ROJA (-${HEAT_PEN})!`
         }
         onReady={handleOk}
       />
@@ -987,7 +1069,7 @@ export function MachacaStage({
       <div className="stage-sub">
         {players[ti].name} ·{' '}
         {overheat
-          ? '🔥 ¡SOBRECALENTAMIENTO — NO PULSES (-4)!'
+          ? `🔥 ¡SOBRECALENTAMIENTO — NO PULSES (-${HEAT_PEN})!`
           : isFnaf
             ? '🔦 ¡ALUMBRA A FOXY!'
             : isAu
@@ -1020,25 +1102,33 @@ export function PunteriaStage({
   registerKeyHandler,
   setBg,
   themeMode = 'classic',
+  difficulty = 'normal',
 }: StageGameProps) {
   const isFnaf = themeMode === 'fnaf';
   const isAu = themeMode === 'amongus';
   const np = players.length;
   const TOTAL_SHOTS = 4;
+  const widths =
+    difficulty === 'easy'
+      ? [16, 14, 12, 10]
+      : difficulty === 'hard'
+        ? [8, 6.2, 4.8, 3.6]
+        : SHOT_WIDTHS;
+  const shotLimitMs = difficulty === 'easy' ? 6500 : difficulty === 'hard' ? 3100 : 4500;
 
   const [ti, setTi] = useState(0);
   const [shotNum, setShotNum] = useState(0);
   const [phase, setPhase] = useState<'PASS' | 'AIM' | 'HIT' | 'PLAYER_DONE'>('PASS');
   const [x, setX] = useState(0);
   const [zoneLeft, setZoneLeft] = useState(44);
-  const [zoneWidth, setZoneWidth] = useState(11);
+  const [zoneWidth, setZoneWidth] = useState(widths[0]);
   const [lastPts, setLastPts] = useState(0);
   const [scores, setScores] = useState<number[]>(() => Array(np).fill(0));
 
   const xRef = useRef(0);
   const dirRef = useRef(1);
   const zoneLeftRef = useRef(44);
-  const zoneWidthRef = useRef(11);
+  const zoneWidthRef = useRef(widths[0]);
   const rafRef = useRef<number | null>(null);
   const shotTimeoutRef = useRef<number | null>(null);
 
@@ -1052,50 +1142,58 @@ export function PunteriaStage({
     setBg(PLAYER_STAGE_COLORS[ti % PLAYER_STAGE_COLORS.length]);
   }, [ti, setBg]);
 
-  const startShot = useCallback((n: number, playerIdx: number) => {
-    stopAnim();
-    setShotNum(n);
-    const w = SHOT_WIDTHS[n] ?? 5;
-    const zl = Math.round(18 + Math.random() * (68 - w));
-    zoneLeftRef.current = zl;
-    zoneWidthRef.current = w;
-    setZoneLeft(zl);
-    setZoneWidth(w);
-
-    xRef.current = 0;
-    dirRef.current = 1;
-    setX(0);
-    setPhase('AIM');
-    const speed = 1.75 + n * 0.72;
-    const step = () => {
-      let next = xRef.current + dirRef.current * speed;
-      if (next >= 100) {
-        next = 100;
-        dirRef.current = -1;
-      } else if (next <= 0) {
-        next = 0;
-        dirRef.current = 1;
-      }
-      xRef.current = next;
-      setX(next);
-      rafRef.current = requestAnimationFrame(step);
-    };
-    rafRef.current = requestAnimationFrame(step);
-
-    shotTimeoutRef.current = window.setTimeout(() => {
+  const startShot = useCallback(
+    (n: number, playerIdx: number) => {
       stopAnim();
-      tone(130, 0.3, 'sawtooth');
-      setLastPts(0);
-      setPhase('HIT');
-      window.setTimeout(() => {
-        if (n + 1 >= TOTAL_SHOTS) {
-          setPhase('PLAYER_DONE');
-        } else {
-          startShot(n + 1, playerIdx);
+      setShotNum(n);
+      const w = widths[n] ?? widths[widths.length - 1];
+      const zl = Math.round(18 + Math.random() * (68 - w));
+      zoneLeftRef.current = zl;
+      zoneWidthRef.current = w;
+      setZoneLeft(zl);
+      setZoneWidth(w);
+
+      xRef.current = 0;
+      dirRef.current = 1;
+      setX(0);
+      setPhase('AIM');
+      const speed =
+        difficulty === 'easy'
+          ? 1.2 + n * 0.42
+          : difficulty === 'hard'
+            ? 2.45 + n * 0.95
+            : 1.75 + n * 0.72;
+      const step = () => {
+        let next = xRef.current + dirRef.current * speed;
+        if (next >= 100) {
+          next = 100;
+          dirRef.current = -1;
+        } else if (next <= 0) {
+          next = 0;
+          dirRef.current = 1;
         }
-      }, 750);
-    }, 4500);
-  }, []);
+        xRef.current = next;
+        setX(next);
+        rafRef.current = requestAnimationFrame(step);
+      };
+      rafRef.current = requestAnimationFrame(step);
+
+      shotTimeoutRef.current = window.setTimeout(() => {
+        stopAnim();
+        tone(130, 0.3, 'sawtooth');
+        setLastPts(0);
+        setPhase('HIT');
+        window.setTimeout(() => {
+          if (n + 1 >= TOTAL_SHOTS) {
+            setPhase('PLAYER_DONE');
+          } else {
+            startShot(n + 1, playerIdx);
+          }
+        }, 750);
+      }, shotLimitMs);
+    },
+    [difficulty, shotLimitMs, widths],
+  );
 
   const handleOk = useCallback(() => {
     if (phase === 'PASS') {
@@ -1154,15 +1252,17 @@ export function PunteriaStage({
   }, [registerKeyHandler, handleOk]);
 
   if (phase === 'PASS') {
+    const shotSecs = (shotLimitMs / 1000).toFixed(1);
     return (
       <PassScreen
         playerName={players[ti].name}
+        difficulty={difficulty}
         subtitle={
           isFnaf
-            ? '4 bloqueos: la zona verde cambia de sitio y se encoge al 5% (máx 4.5s por tiro)'
+            ? `4 bloqueos: la zona verde cambia de sitio y se encoge al ${widths[3]}% (máx ${shotSecs}s por tiro)`
             : isAu
-              ? 'Electricidad: 4 calibraciones veloces con zona móvil estrecha'
-              : '4 disparos rápidos: la zona verde cambia de lugar y se encoge'
+              ? `Electricidad: 4 calibraciones veloces con zona móvil (${shotSecs}s límite)`
+              : `4 disparos rápidos: la zona verde cambia de lugar y se encoge (${shotSecs}s límite)`
         }
         onReady={handleOk}
       />
@@ -1208,8 +1308,8 @@ export function PunteriaStage({
         {isFnaf
           ? 'OK: clavar seguro justo en la zona verde'
           : isAu
-            ? 'OK: fijar distribuidor antes de 4.5 s'
-            : 'OK: detener en la zona verde (antes de 4.5 s)'}
+            ? `OK: fijar distribuidor antes de ${(shotLimitMs / 1000).toFixed(1)} s`
+            : `OK: detener en la zona verde (antes de ${(shotLimitMs / 1000).toFixed(1)} s)`}
       </div>
     </div>
   );
@@ -1227,29 +1327,39 @@ export function RelojCiegoStage({
   registerKeyHandler,
   setBg,
   themeMode = 'classic',
+  difficulty = 'normal',
 }: StageGameProps) {
   const isFnaf = themeMode === 'fnaf';
   const isAu = themeMode === 'amongus';
   const np = players.length;
+  const targets =
+    difficulty === 'easy'
+      ? [4.0, 4.5, 5.0, 5.5]
+      : difficulty === 'hard'
+        ? [7.5, 8.75, 10.0, 11.25]
+        : BLIND_TARGETS;
+  const hideAt = difficulty === 'easy' ? 1.4 : difficulty === 'hard' ? 0.45 : 0.8;
 
   const [ti, setTi] = useState(0);
   const [targetSec, setTargetSec] = useState(
-    () => BLIND_TARGETS[Math.floor(Math.random() * BLIND_TARGETS.length)],
+    () => targets[Math.floor(Math.random() * targets.length)],
   );
   const [phase, setPhase] = useState<'PASS' | 'RUN' | 'RESULT'>('PASS');
   const [liveSec, setLiveSec] = useState(0);
   const [finalSec, setFinalSec] = useState(0);
   const [diffs, setDiffs] = useState<number[]>(() => Array(np).fill(99));
   const [recorded, setRecorded] = useState<number[]>(() => Array(np).fill(0));
-  const [targetsUsed, setTargetsUsed] = useState<number[]>(() => Array(np).fill(6.25));
+  const [targetsUsed, setTargetsUsed] = useState<number[]>(() => Array(np).fill(targets[1]));
 
   const startRef = useRef(0);
   const rafRef = useRef<number | null>(null);
   const decoyRef = useRef<number | null>(null);
+  const decoy2Ref = useRef<number | null>(null);
 
   const stopRaf = () => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
     if (decoyRef.current) window.clearTimeout(decoyRef.current);
+    if (decoy2Ref.current) window.clearTimeout(decoy2Ref.current);
   };
   useEffect(() => stopRaf, []);
 
@@ -1261,17 +1371,25 @@ export function RelojCiegoStage({
     stopRaf();
     startRef.current = performance.now();
     setPhase('RUN');
-    decoyRef.current = window.setTimeout(() => {
-      tone(370, 0.08, 'triangle', 0.08);
-      window.setTimeout(() => tone(510, 0.08, 'triangle', 0.08), 180);
-    }, 2200 + Math.random() * 1400);
+    if (difficulty !== 'easy') {
+      decoyRef.current = window.setTimeout(() => {
+        tone(370, 0.08, 'triangle', 0.08);
+        window.setTimeout(() => tone(510, 0.08, 'triangle', 0.08), 180);
+      }, 2200 + Math.random() * 1400);
+    }
+    if (difficulty === 'hard') {
+      decoy2Ref.current = window.setTimeout(() => {
+        tone(620, 0.09, 'square', 0.08);
+        window.setTimeout(() => tone(290, 0.09, 'square', 0.08), 210);
+      }, 4500 + Math.random() * 1800);
+    }
 
     const tick = () => {
       setLiveSec((performance.now() - startRef.current) / 1000);
       rafRef.current = requestAnimationFrame(tick);
     };
     rafRef.current = requestAnimationFrame(tick);
-  }, []);
+  }, [difficulty]);
 
   const handleOk = useCallback(() => {
     if (phase === 'PASS') {
@@ -1312,17 +1430,17 @@ export function RelojCiegoStage({
             setDiffs(Array(np).fill(99));
             setRecorded(Array(np).fill(0));
             setTi(0);
-            setTargetSec(BLIND_TARGETS[Math.floor(Math.random() * BLIND_TARGETS.length)]);
+            setTargetSec(targets[Math.floor(Math.random() * targets.length)]);
             setPhase('PASS');
           },
         );
       } else {
         setTi((i) => i + 1);
-        setTargetSec(BLIND_TARGETS[Math.floor(Math.random() * BLIND_TARGETS.length)]);
+        setTargetSec(targets[Math.floor(Math.random() * targets.length)]);
         setPhase('PASS');
       }
     }
-  }, [phase, ti, np, targetSec, diffs, recorded, targetsUsed, isFnaf, isAu, startClock, onFinish]);
+  }, [phase, ti, np, targetSec, diffs, recorded, targetsUsed, isFnaf, isAu, targets, startClock, onFinish]);
 
   useEffect(() => {
     registerKeyHandler((k: RemoteKey) => {
@@ -1334,12 +1452,13 @@ export function RelojCiegoStage({
     return (
       <PassScreen
         playerName={players[ti].name}
+        difficulty={difficulty}
         subtitle={
           isFnaf
-            ? `6:00 AM en ${targetSec.toFixed(2)} s · ¡Se oculta a los 0.80 s y habrá ruidos!`
+            ? `6:00 AM en ${targetSec.toFixed(2)} s · ¡Se oculta a los ${hideAt.toFixed(2)} s!`
             : isAu
-              ? `Navegación: detén el salto en ${targetSec.toFixed(2)} s (se oculta en 0.80 s)`
-              : `Detén el reloj oculto en ${targetSec.toFixed(2)} s (desaparece a los 0.80 s)`
+              ? `Navegación: detén el salto en ${targetSec.toFixed(2)} s (se oculta en ${hideAt.toFixed(2)} s)`
+              : `Detén el reloj oculto en ${targetSec.toFixed(2)} s (desaparece a los ${hideAt.toFixed(2)} s)`
         }
         onReady={handleOk}
       />
@@ -1369,7 +1488,7 @@ export function RelojCiegoStage({
             : `meta ${targetSec.toFixed(2)} s`}
       </div>
       <div className="stage-giant tabular-nums">
-        {liveSec < 0.8 ? liveSec.toFixed(2) : isFnaf ? '5:?? AM' : '?.??'}
+        {liveSec < hideAt ? liveSec.toFixed(2) : isFnaf ? '5:?? AM' : '?.??'}
       </div>
       <div className="stage-hint">
         {isFnaf
@@ -1405,11 +1524,13 @@ export function MemoriaStage({
   registerKeyHandler,
   setBg,
   themeMode = 'classic',
+  difficulty = 'normal',
 }: StageGameProps) {
   const isFnaf = themeMode === 'fnaf';
   const isAu = themeMode === 'amongus';
   const np = players.length;
   const TOTAL_CARDS = 16;
+  const TURN_SEC = difficulty === 'easy' ? 15 : difficulty === 'hard' ? 6 : 10;
 
   const [deck, setDeck] = useState(() => createMemoryDeck(themeMode));
   const [matched, setMatched] = useState<boolean[]>(() => Array(TOTAL_CARDS).fill(false));
@@ -1417,7 +1538,7 @@ export function MemoriaStage({
   const [cursor, setCursor] = useState(0);
   const [ti, setTi] = useState(0);
   const [streak, setStreak] = useState(0);
-  const [turnLeft, setTurnLeft] = useState(10);
+  const [turnLeft, setTurnLeft] = useState(TURN_SEC);
   const [scores, setScores] = useState<number[]>(() => Array(np).fill(0));
   const [locked, setLocked] = useState(false);
 
@@ -1432,11 +1553,10 @@ export function MemoriaStage({
     setBg(PLAYER_STAGE_COLORS[ti % PLAYER_STAGE_COLORS.length]);
   }, [ti, setBg]);
 
-  // Reloj de turno de 10 s
   useEffect(() => {
     if (locked || matched.every(Boolean)) return;
-    let rem = 10;
-    setTurnLeft(10);
+    let rem = TURN_SEC;
+    setTurnLeft(TURN_SEC);
     const iv = window.setInterval(() => {
       rem -= 1;
       setTurnLeft(Math.max(0, rem));
@@ -1449,7 +1569,7 @@ export function MemoriaStage({
       }
     }, 1000);
     return () => window.clearInterval(iv);
-  }, [ti, locked, matched, np]);
+  }, [ti, locked, matched, np, TURN_SEC]);
 
   const flipCard = useCallback(
     (idx: number) => {
@@ -1499,16 +1619,23 @@ export function MemoriaStage({
         } else {
           setLocked(true);
           tone(220, 0.16, 'sawtooth');
+          if (difficulty === 'hard') {
+            setScores((prev) => {
+              const next = [...prev];
+              next[ti] = Math.max(0, next[ti] - 1);
+              return next;
+            });
+          }
           lockTimerRef.current = window.setTimeout(() => {
             setFlipped([]);
             setStreak(0);
             setTi((t) => (t + 1) % np);
             setLocked(false);
-          }, 700);
+          }, difficulty === 'hard' ? 500 : 700);
         }
       }
     },
-    [locked, matched, flipped, deck, scores, ti, np, streak, isFnaf, isAu, themeMode, onFinish],
+    [locked, matched, flipped, deck, scores, ti, np, streak, difficulty, isFnaf, isAu, themeMode, onFinish],
   );
 
   const handleKey = useCallback(
@@ -1564,7 +1691,7 @@ export function MemoriaStage({
       </div>
       <div className="stage-hint">
         ▲▼◀▶ mover · OK {isFnaf ? 'revisar monitor' : isAu ? 'escanear módulo' : 'destapar carta'} (16
-        cartas · 10 s por turno)
+        cartas · {TURN_SEC} s{difficulty === 'hard' ? ' · fallo -1 pt' : ''})
       </div>
     </div>
   );
@@ -1580,10 +1707,16 @@ export function SemaforoStage({
   registerKeyHandler,
   setBg,
   themeMode = 'classic',
+  difficulty = 'normal',
 }: StageGameProps) {
   const isFnaf = themeMode === 'fnaf';
   const isAu = themeMode === 'amongus';
   const np = players.length;
+  const DUR_MS = difficulty === 'easy' ? 12500 : difficulty === 'hard' ? 10000 : 11000;
+  const RED_PEN = difficulty === 'easy' ? 12 : difficulty === 'hard' ? 35 : 22;
+  const GRACE_MS = difficulty === 'easy' ? 320 : difficulty === 'hard' ? 135 : 210;
+  const RED_PROB = difficulty === 'easy' ? 0.55 : difficulty === 'hard' ? 0.82 : 0.7;
+
   const [ti, setTi] = useState(0);
   const [phase, setPhase] = useState<'PASS' | 'RUN' | 'DONE'>('PASS');
   const [light, setLight] = useState<'GREEN' | 'YELLOW' | 'RED'>('GREEN');
@@ -1640,13 +1773,20 @@ export function SemaforoStage({
     setPhase('RUN');
 
     const t0 = Date.now();
-    const DUR = 11000;
 
     const scheduleLightSwitch = () => {
       if (!runningRef.current) return;
-      let delay = 700 + Math.random() * 1100;
-      if (lightRef.current === 'YELLOW') delay = 260 + Math.random() * 280;
-      else if (lightRef.current === 'RED') delay = 750 + Math.random() * 850;
+      let delay =
+        difficulty === 'easy'
+          ? 1100 + Math.random() * 1000
+          : difficulty === 'hard'
+            ? 420 + Math.random() * 630
+            : 700 + Math.random() * 1100;
+      if (lightRef.current === 'YELLOW') {
+        delay = difficulty === 'hard' ? 170 + Math.random() * 170 : 260 + Math.random() * 280;
+      } else if (lightRef.current === 'RED') {
+        delay = difficulty === 'hard' ? 650 + Math.random() * 750 : 750 + Math.random() * 850;
+      }
 
       toggleTimerRef.current = window.setTimeout(() => {
         if (!runningRef.current) return;
@@ -1655,8 +1795,7 @@ export function SemaforoStage({
           nextLight = 'YELLOW';
           tone(480, 0.08, 'triangle', 0.1);
         } else if (lightRef.current === 'YELLOW') {
-          // 70% pasa a ROJO, 30% vuelve a VERDE para engañar
-          nextLight = Math.random() < 0.7 ? 'RED' : 'GREEN';
+          nextLight = Math.random() < RED_PROB ? 'RED' : 'GREEN';
           if (nextLight === 'RED') {
             redAtRef.current = performance.now();
             tone(210, 0.15, 'square', 0.12);
@@ -1676,13 +1815,13 @@ export function SemaforoStage({
 
     tickTimerRef.current = window.setInterval(() => {
       const elapsed = Date.now() - t0;
-      const pct = Math.max(0, 100 - (elapsed / DUR) * 100);
+      const pct = Math.max(0, 100 - (elapsed / DUR_MS) * 100);
       setTimeLeftPct(pct);
-      if (elapsed >= DUR) {
+      if (elapsed >= DUR_MS) {
         finishTurn(progressRef.current);
       }
     }, 50);
-  }, [finishTurn]);
+  }, [difficulty, DUR_MS, RED_PROB, finishTurn]);
 
   const handleOk = useCallback(() => {
     if (phase === 'PASS') {
@@ -1699,8 +1838,8 @@ export function SemaforoStage({
           finishTurn(100);
         }
       } else {
-        if (performance.now() - redAtRef.current > 210) {
-          const nextP = Math.max(0, progressRef.current - 22);
+        if (performance.now() - redAtRef.current > GRACE_MS) {
+          const nextP = Math.max(0, progressRef.current - RED_PEN);
           progressRef.current = nextP;
           setProgress(nextP);
           setPenaltyFlash(true);
@@ -1730,7 +1869,7 @@ export function SemaforoStage({
         setPhase('PASS');
       }
     }
-  }, [phase, ti, np, scores, isFnaf, isAu, startRun, finishTurn, onFinish]);
+  }, [phase, ti, np, scores, GRACE_MS, RED_PEN, isFnaf, isAu, startRun, finishTurn, onFinish]);
 
   useEffect(() => {
     registerKeyHandler((k: RemoteKey) => {
@@ -1739,15 +1878,17 @@ export function SemaforoStage({
   }, [registerKeyHandler, handleOk]);
 
   if (phase === 'PASS') {
+    const secs = (DUR_MS / 1000).toFixed(1).replace('.0', '');
     return (
       <PassScreen
         playerName={players[ti].name}
+        difficulty={difficulty}
         subtitle={
           isFnaf
-            ? 'Avanza con luz verde; ¡OJO con el aviso AMARILLO y no te muevas en ROJO (-22%)!'
+            ? `Avanza con luz verde (${secs}s); ¡OJO con el aviso AMARILLO y no te muevas en ROJO (-${RED_PEN}%)!`
             : isAu
-              ? 'Avanza por Cafetería; frena si falla la luz (-22% de castigo en rojo)'
-              : 'Llega al 100% en 11s: el aviso AMARILLO avisa rojo (o engaña). ¡Moverse en rojo = -22%!'
+              ? `Avanza por Cafetería (${secs}s); frena si falla la luz (-${RED_PEN}% en rojo)`
+              : `Llega al 100% en ${secs}s: el aviso AMARILLO avisa rojo (o engaña). ¡Moverse en rojo = -${RED_PEN}%!`
         }
         onReady={handleOk}
       />
@@ -1786,7 +1927,7 @@ export function SemaforoStage({
       </div>
       <div className="stage-sub" style={{opacity: 0.9}}>
         {penaltyFlash
-          ? '¡Te pillaron en ROJO! -22%'
+          ? `¡Te pillaron en ROJO! -${RED_PEN}%`
           : 'Meta: 100% (+3% por toque)'}
       </div>
       <div className="stage-barw">
@@ -1813,13 +1954,13 @@ const STROOP_COLORS = [
   {name: 'CIAN', hex: '#06b6d4'},
 ];
 
-function makeStroopPuzzle() {
+function makeStroopPuzzle(trapProb = 0.38) {
   const wordIdx = Math.floor(Math.random() * STROOP_COLORS.length);
   let inkIdx = Math.floor(Math.random() * STROOP_COLORS.length);
   while (inkIdx === wordIdx) {
     inkIdx = Math.floor(Math.random() * STROOP_COLORS.length);
   }
-  const askWord = Math.random() < 0.38; // 38% pide la palabra en lugar de la tinta
+  const askWord = Math.random() < trapProb;
   return {
     word: STROOP_COLORS[wordIdx].name,
     inkHex: STROOP_COLORS[inkIdx].hex,
@@ -1834,16 +1975,19 @@ export function ColoresStage({
   registerKeyHandler,
   setBg,
   themeMode = 'classic',
+  difficulty = 'normal',
 }: StageGameProps) {
   const isFnaf = themeMode === 'fnaf';
   const isAu = themeMode === 'amongus';
   const np = players.length;
-  const ROUNDS = 5;
+  const ROUNDS = difficulty === 'easy' ? 4 : difficulty === 'hard' ? 6 : 5;
+  const LIMIT_MS = difficulty === 'easy' ? 4300 : difficulty === 'hard' ? 1950 : 2900;
+  const trapProb = difficulty === 'easy' ? 0.2 : difficulty === 'hard' ? 0.55 : 0.38;
   const total = ROUNDS * np;
 
   const [qi, setQi] = useState(0);
   const [phase, setPhase] = useState<'PASS' | 'PLAY' | 'RES'>('PASS');
-  const [puzzle, setPuzzle] = useState(() => makeStroopPuzzle());
+  const [puzzle, setPuzzle] = useState(() => makeStroopPuzzle(trapProb));
   const [sel, setSel] = useState(0);
   const [timePct, setTimePct] = useState(100);
   const [wasCorrect, setWasCorrect] = useState(false);
@@ -1869,14 +2013,13 @@ export function ColoresStage({
 
   const startQuestion = useCallback(() => {
     stopTimer();
-    setPuzzle(makeStroopPuzzle());
+    setPuzzle(makeStroopPuzzle(trapProb));
     setSel(0);
     setTimedOut(false);
     setTimePct(100);
     setPhase('PLAY');
     tone(520, 0.08);
 
-    const LIMIT_MS = 2900;
     const endAt = performance.now() + LIMIT_MS;
     timerRef.current = window.setInterval(() => {
       const left = Math.max(0, endAt - performance.now());
@@ -1889,7 +2032,7 @@ export function ColoresStage({
         setPhase('RES');
       }
     }, 45);
-  }, []);
+  }, [LIMIT_MS, trapProb]);
 
   const confirmOpt = useCallback(
     (idx: number) => {
@@ -1954,23 +2097,26 @@ export function ColoresStage({
         }
       }
     },
-    [phase, sel, qi, total, np, scores, isFnaf, isAu, startQuestion, confirmOpt, onFinish],
+    [phase, sel, qi, total, ROUNDS, np, scores, isFnaf, isAu, startQuestion, confirmOpt, onFinish],
   );
 
   useEffect(() => {
     registerKeyHandler(handleKey);
   }, [registerKeyHandler, handleKey]);
 
+  const secsStr = (LIMIT_MS / 1000).toFixed(1);
+
   if (phase === 'PASS') {
     return (
       <PassScreen
         playerName={players[pi].name}
+        difficulty={difficulty}
         subtitle={
           isFnaf
-            ? `Ronda ${rnd}/${ROUNDS} · ¡Lee la regla arriba (TINTA o PALABRA) antes de 2.9s!`
+            ? `Ronda ${rnd}/${ROUNDS} · ¡Lee la regla arriba (TINTA o PALABRA) antes de ${secsStr}s!`
             : isAu
-              ? `Ronda ${rnd}/${ROUNDS} · ¡6 cables y regla cambiante (COLOR vs ETIQUETA) en 2.9s!`
-              : `Ronda ${rnd}/${ROUNDS} · ¡6 colores, regla sorpresa (TINTA o PALABRA) y reloj de 2.9s!`
+              ? `Ronda ${rnd}/${ROUNDS} · ¡6 cables y regla cambiante (COLOR vs ETIQUETA) en ${secsStr}s!`
+              : `Ronda ${rnd}/${ROUNDS} · ¡6 colores, regla sorpresa (TINTA o PALABRA) y reloj de ${secsStr}s!`
         }
         onReady={() => handleKey('ok')}
       />
@@ -2031,7 +2177,7 @@ export function ColoresStage({
           </div>
         ))}
       </div>
-      <div className="stage-hint">▲▼◀▶ elegir antes de 2.9s · OK confirma</div>
+      <div className="stage-hint">▲▼◀▶ elegir antes de {secsStr}s · OK confirma</div>
     </div>
   );
 }
@@ -2085,10 +2231,15 @@ const AU_ROOMS = [
   'Escotilla Central',
 ];
 
-function buildArrowSeq(count: number) {
+function buildArrowSeq(count: number, difficulty: GameDifficulty) {
   return Array.from({length: count}, (_, i) => {
     const base = ARROWS[Math.floor(Math.random() * 4)];
-    const inverted = i >= 2 && Math.random() < 0.35;
+    const inverted =
+      difficulty === 'easy'
+        ? i >= 4 && Math.random() < 0.15
+        : difficulty === 'hard'
+          ? Math.random() < 0.52
+          : i >= 2 && Math.random() < 0.35;
     return {
       symbol: base.symbol,
       expectedDir: inverted ? base.opp : base.dir,
@@ -2103,15 +2254,17 @@ export function FlechasStage({
   registerKeyHandler,
   setBg,
   themeMode = 'classic',
+  difficulty = 'normal',
 }: StageGameProps) {
   const isFnaf = themeMode === 'fnaf';
   const isAu = themeMode === 'amongus';
   const np = players.length;
-  const TOTAL = 16;
+  const TOTAL = difficulty === 'easy' ? 12 : difficulty === 'hard' ? 22 : 16;
+  const PEN_SEC = difficulty === 'easy' ? 1 : difficulty === 'hard' ? 3 : 2;
 
   const [ti, setTi] = useState(0);
   const [phase, setPhase] = useState<'PASS' | 'RUN' | 'DONE'>('PASS');
-  const [seq, setSeq] = useState(() => buildArrowSeq(TOTAL));
+  const [seq, setSeq] = useState(() => buildArrowSeq(TOTAL, difficulty));
   const [step, setStep] = useState(0);
   const [mistakes, setMistakes] = useState(0);
   const [timesMs, setTimesMs] = useState<number[]>(() => Array(np).fill(99999));
@@ -2124,13 +2277,13 @@ export function FlechasStage({
   }, [phase, seq, step, ti, setBg]);
 
   const startTurn = useCallback(() => {
-    setSeq(buildArrowSeq(TOTAL));
+    setSeq(buildArrowSeq(TOTAL, difficulty));
     setStep(0);
     setMistakes(0);
     startRef.current = performance.now();
     setPhase('RUN');
     tone(520, 0.08);
-  }, []);
+  }, [TOTAL, difficulty]);
 
   const handleKey = useCallback(
     (k: RemoteKey) => {
@@ -2142,7 +2295,8 @@ export function FlechasStage({
           if (target && k === target.expectedDir) {
             tone(440 + step * 35, 0.07);
             if (step + 1 >= TOTAL) {
-              const totalMs = Math.round(performance.now() - startRef.current) + mistakes * 2000;
+              const totalMs =
+                Math.round(performance.now() - startRef.current) + mistakes * PEN_SEC * 1000;
               setTimesMs((prev) => {
                 const next = [...prev];
                 next[ti] = totalMs;
@@ -2177,7 +2331,7 @@ export function FlechasStage({
         }
       }
     },
-    [phase, seq, step, mistakes, ti, np, timesMs, isFnaf, isAu, startTurn, onFinish],
+    [phase, seq, step, mistakes, TOTAL, PEN_SEC, ti, np, timesMs, isFnaf, isAu, startTurn, onFinish],
   );
 
   useEffect(() => {
@@ -2188,12 +2342,13 @@ export function FlechasStage({
     return (
       <PassScreen
         playerName={players[ti].name}
+        difficulty={difficulty}
         subtitle={
           isFnaf
-            ? '16 cámaras veloces: si la pantalla se pone ROJA (INVERSA), ¡pulsa la dirección OPUESTA!'
+            ? `${TOTAL} cámaras veloces: si la pantalla se pone ROJA (INVERSA), ¡pulsa la dirección OPUESTA!`
             : isAu
-              ? '16 salas por The Skeld: si ves SABOTAJE ROJO, ¡pulsa la flecha OPUESTA!'
-              : '16 flechas veloces: si aparece en ROJO (INVERSA), ¡pulsa la flecha contraria!'
+              ? `${TOTAL} salas por The Skeld: si ves SABOTAJE ROJO, ¡pulsa la flecha OPUESTA!`
+              : `${TOTAL} flechas veloces: si aparece en ROJO (INVERSA), ¡pulsa la flecha contraria!`
         }
         onReady={() => handleKey('ok')}
       />
@@ -2205,7 +2360,7 @@ export function FlechasStage({
       <div className="stage-c cursor-pointer" onClick={() => handleKey('ok')}>
         <div className="stage-giant tabular-nums">{(timesMs[ti] / 1000).toFixed(2)} s</div>
         <div className="stage-sub">
-          {players[ti].name} · {mistakes} errores (+{mistakes * 2} s)
+          {players[ti].name} · {mistakes} errores (+{mistakes * PEN_SEC} s)
         </div>
         <div className="stage-hint">OK: continuar</div>
       </div>
@@ -2218,7 +2373,11 @@ export function FlechasStage({
     <div className="stage-c">
       <div className="stage-sub">
         {players[ti].name} ·{' '}
-        {isFnaf ? FNAF_CAMS[step] : isAu ? AU_ROOMS[step] : `Paso ${step + 1} / ${TOTAL}`}
+        {isFnaf
+          ? FNAF_CAMS[step % FNAF_CAMS.length]
+          : isAu
+            ? AU_ROOMS[step % AU_ROOMS.length]
+            : `Paso ${step + 1} / ${TOTAL}`}
       </div>
       {cur?.inverted && (
         <div className="mt-2 inline-block rounded-xl border-2 border-red-400 bg-red-600/80 px-4 py-1 text-[3vh] font-black text-white">
@@ -2227,7 +2386,7 @@ export function FlechasStage({
       )}
       <div className="text-[20vh] leading-none my-3">{cur?.symbol}</div>
       <div className="stage-sub" style={{opacity: 0.85}}>
-        {step + 1}/{TOTAL} · Errores: {mistakes} (+2 s c/u)
+        {step + 1}/{TOTAL} · Errores: {mistakes} (+{PEN_SEC} s c/u)
       </div>
       <div className="stage-hint">
         {cur?.inverted ? '¡Pulsa la dirección CONTRARIA ▲▼◀▶!' : 'Pulsa la flecha normal ▲▼◀▶'}

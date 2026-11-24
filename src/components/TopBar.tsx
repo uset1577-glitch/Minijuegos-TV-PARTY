@@ -30,7 +30,7 @@ export function TopBar({currentScreen, onNavigate, muted, onToggleMute}: TopBarP
         onClick={() => handleNav('HOME')}
         className="tv-focusable text-xl font-bold tracking-tight text-white whitespace-nowrap shrink-0 rounded-lg px-2 py-1 text-left"
       >
-        Mando Party TV
+        CgamesTVPARTY
       </button>
 
       <nav aria-label="Navegación principal" className="flex items-center gap-6 lg:gap-8">

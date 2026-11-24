@@ -9,14 +9,23 @@ import {
   TriviaQuestion,
   TrueFalseStatement,
 } from '../../types/game';
-import {apiUrl} from '../../utils/api';
 import {
-  filterFreshAiItems,
-  getRecentAiItems,
-  pickFreshTopic,
-  recordAiItems,
-} from '../../utils/aiHistory';
+  StorySessionEngine,
+  createStorySession,
+  generateDilemmas,
+  generateMostLikelyPrompts,
+  generateNeverHaveI,
+  generateWheelChallenges,
+} from '../../data/partyChallengesBank';
 import {
+  getClueBatch,
+  getEmojiBatch,
+  getImpostorRound,
+  getTriviaBatch,
+  getTrueFalseBatch,
+} from '../../data/quizKnowledgeBank';
+import {
+  DIFFICULTY_META,
   PLAYER_STAGE_COLORS,
   RemoteKey,
   StageGameProps,
@@ -25,10 +34,10 @@ import {
 } from '../../utils/stageAudio';
 
 /* -------------------------------------------------------------------------- */
-/* 9. RULETA DE RETOS IA (CONTINUA CON ANIMACIÓN DE COLORES)                  */
+/* 9. RULETA DE RETOS (MILES DE RETOS SIN CONEXIÓN)                           */
 /* -------------------------------------------------------------------------- */
 
-const WHEEL_CATS = ['Mímica', 'Verdad', 'Improvisa', 'Físico', 'Votación', 'Talento', 'Comodín IA'];
+const WHEEL_CATS = ['Mímica', 'Verdad', 'Improvisa', 'Físico', 'Votación', 'Talento', 'Comodín'];
 const FNAF_WHEEL_CATS = ['Guardia', 'Animatrónico', 'Cámara', 'Mímica FNAF', 'Turno 12 AM', 'Sonido', 'Comodín Fazbear'];
 const AU_WHEEL_CATS = ['Tarea Skeld', 'Alcantarilla', 'Emergencia', 'Coartada', 'Sabotaje', 'Mímica Espacial', 'Comodín Tripulación'];
 const VIBES = ['En familia', 'Sano y divertido', 'Creativo', 'Para reír todos'];
@@ -40,6 +49,7 @@ export function RuletaIaStage({
   registerKeyHandler,
   setBg,
   themeMode = 'classic',
+  difficulty = 'normal',
   onAwardSingle,
 }: StageGameProps & {onAwardSingle: (playerIdx: number, pts: number) => void}) {
   const isFnaf = themeMode === 'fnaf';
@@ -47,18 +57,21 @@ export function RuletaIaStage({
   const activeVibes = isFnaf ? FNAF_VIBES : isAu ? AU_VIBES : VIBES;
   const activeCats = isFnaf ? FNAF_WHEEL_CATS : isAu ? AU_WHEEL_CATS : WHEEL_CATS;
   const np = players.length;
-  const [phase, setPhase] = useState<'SPIN' | 'SHOW' | 'ERR'>('SPIN');
+  const secLimit = difficulty === 'easy' ? 0 : difficulty === 'hard' ? 8 : 14;
+  const ptsReward = difficulty === 'hard' ? 3 : 2;
+  const [phase, setPhase] = useState<'SPIN' | 'SHOW'>('SPIN');
   const [vibeIdx, setVibeIdx] = useState(0);
   const [spinColorIdx, setSpinColorIdx] = useState(0);
   const [targetPlayer, setTargetPlayer] = useState(0);
   const [challengeText, setChallengeText] = useState('');
   const [challengeTitle, setChallengeTitle] = useState('');
-  const [errMsg, setErrMsg] = useState('');
+  const [timeLeft, setTimeLeft] = useState(secLimit);
+  const [timedOut, setTimedOut] = useState(false);
 
   const lastPlayerRef = useRef(-1);
-  const spinningRef = useRef(false);
   const ivRef = useRef<number | null>(null);
   const spinTimeoutRef = useRef<number | null>(null);
+  const showClockRef = useRef<number | null>(null);
   const queueRef = useRef<Array<{title: string; challenge: string}>>([]);
   const queueVibeRef = useRef(-1);
   const historyKey = `ruleta_${themeMode}`;
@@ -66,14 +79,15 @@ export function RuletaIaStage({
   const stopSpin = () => {
     if (ivRef.current) window.clearInterval(ivRef.current);
     if (spinTimeoutRef.current) window.clearTimeout(spinTimeoutRef.current);
-    spinningRef.current = false;
+    if (showClockRef.current) window.clearInterval(showClockRef.current);
   };
   useEffect(() => stopSpin, []);
 
   const launchSpin = useCallback(
-    async (chosenVibeIdx: number) => {
+    (chosenVibeIdx: number) => {
       stopSpin();
-      spinningRef.current = true;
+      setTimedOut(false);
+      setTimeLeft(secLimit);
       setPhase('SPIN');
 
       let ti = 0;
@@ -87,104 +101,71 @@ export function RuletaIaStage({
       ivRef.current = window.setInterval(() => {
         tick++;
         setSpinColorIdx(tick % np);
-        tone(300 + tick * 12, 0.04);
-      }, 110);
+        tone(300 + tick * 14, 0.04);
+      }, 95);
 
-      if (queueVibeRef.current !== chosenVibeIdx) {
-        queueRef.current = [];
+      if (queueVibeRef.current !== chosenVibeIdx || queueRef.current.length === 0) {
         queueVibeRef.current = chosenVibeIdx;
-      }
-
-      if (queueRef.current.length > 0) {
-        const nextItem = queueRef.current.shift()!;
-        spinTimeoutRef.current = window.setTimeout(() => {
-          stopSpin();
-          setChallengeTitle(nextItem.title);
-          setChallengeText(nextItem.challenge);
-          recordAiItems(historyKey, [nextItem.challenge], 45);
-          tone(784, 0.35);
-          setPhase('SHOW');
-        }, 700);
-        return;
-      }
-
-      try {
         const cat = activeCats[Math.floor(Math.random() * activeCats.length)];
-        const res = await fetch(apiUrl('/api/ai/challenge'), {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({
-            category: cat,
-            vibe: activeVibes[chosenVibeIdx],
-            playerName: players[ti].name,
-            playerCount: np,
-            recentPrompts: getRecentAiItems(historyKey),
-            theme: themeMode,
-          }),
-        });
-        const data = await res.json();
-        stopSpin();
-        if (!res.ok) throw new Error(data.error || 'Error con IA');
-
-        const batch = Array.isArray(data.challenges)
-          ? (data.challenges as Array<{title?: string; challenge?: string}>)
-          : [];
-        const formatted = batch
-          .filter((c) => c && c.challenge)
-          .map((c) => ({
-            title: String(c.title || cat),
-            challenge: String(c.challenge || ''),
-          }));
-
-        const freshList = filterFreshAiItems(
+        queueRef.current = generateWheelChallenges(
+          themeMode,
+          cat,
+          activeVibes[chosenVibeIdx],
           historyKey,
-          formatted,
-          (c) => c.challenge,
-          45,
         );
-        const first = freshList.shift() ?? {
-          title: String(data.title || cat),
-          challenge: String(data.challenge || ''),
-        };
-        if (first.challenge) {
-          recordAiItems(historyKey, [first.challenge], 45);
-        }
-        queueRef.current = freshList;
-
-        setChallengeTitle(first.title);
-        setChallengeText(first.challenge);
-        tone(784, 0.35);
-        setPhase('SHOW');
-      } catch (err) {
-        stopSpin();
-        setErrMsg(err instanceof Error ? err.message : 'Error de conexión con IA');
-        tone(150, 0.35, 'sawtooth');
-        setPhase('ERR');
       }
+
+      const nextItem = queueRef.current.shift() ?? {
+        title: activeCats[0],
+        challenge: 'Cuenta un chiste rápido en menos de 10 segundos.',
+      };
+
+      spinTimeoutRef.current = window.setTimeout(() => {
+        stopSpin();
+        setChallengeTitle(nextItem.title);
+        setChallengeText(nextItem.challenge);
+        tone(784, 0.3);
+        setPhase('SHOW');
+
+        if (secLimit > 0) {
+          const endAt = Date.now() + secLimit * 1000;
+          setTimeLeft(secLimit);
+          showClockRef.current = window.setInterval(() => {
+            const rem = Math.max(0, Math.ceil((endAt - Date.now()) / 1000));
+            setTimeLeft(rem);
+            if (Date.now() >= endAt) {
+              if (showClockRef.current) window.clearInterval(showClockRef.current);
+              showClockRef.current = null;
+              setTimedOut(true);
+              tone(130, 0.3, 'sawtooth');
+            }
+          }, 150);
+        }
+      }, 520);
     },
-    [np, players, activeCats, activeVibes, themeMode, historyKey],
+    [np, activeCats, activeVibes, themeMode, historyKey, secLimit],
   );
 
   useEffect(() => {
-    void launchSpin(0);
+    launchSpin(0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
-    if (phase === 'SPIN') setBg(PLAYER_STAGE_COLORS[spinColorIdx % PLAYER_STAGE_COLORS.length]);
-    else if (phase === 'ERR') setBg('#7f1d1d');
+    if (phase === 'SHOW' && timedOut) setBg('#7f1d1d');
+    else if (phase === 'SPIN') setBg(PLAYER_STAGE_COLORS[spinColorIdx % PLAYER_STAGE_COLORS.length]);
     else setBg(PLAYER_STAGE_COLORS[targetPlayer % PLAYER_STAGE_COLORS.length]);
-  }, [phase, spinColorIdx, targetPlayer, setBg]);
+  }, [phase, timedOut, spinColorIdx, targetPlayer, setBg]);
 
   const handleKey = useCallback(
     (k: RemoteKey) => {
       if (phase === 'SPIN') return;
       if (k === 'ok') {
-        void launchSpin(vibeIdx);
-      } else if (k === 'up' && phase === 'SHOW') {
-        onAwardSingle(targetPlayer, 2);
+        launchSpin(vibeIdx);
+      } else if (k === 'up' && phase === 'SHOW' && !timedOut) {
+        onAwardSingle(targetPlayer, ptsReward);
         tone(784, 0.25);
-        void launchSpin(vibeIdx);
+        launchSpin(vibeIdx);
       } else if (k === 'right' || k === 'left') {
         const nextV =
           k === 'right'
@@ -192,10 +173,10 @@ export function RuletaIaStage({
             : (vibeIdx + activeVibes.length - 1) % activeVibes.length;
         setVibeIdx(nextV);
         playControlClick();
-        void launchSpin(nextV);
+        launchSpin(nextV);
       }
     },
-    [phase, vibeIdx, activeVibes.length, targetPlayer, launchSpin, onAwardSingle],
+    [phase, timedOut, vibeIdx, activeVibes.length, targetPlayer, ptsReward, launchSpin, onAwardSingle],
   );
 
   useEffect(() => {
@@ -206,23 +187,11 @@ export function RuletaIaStage({
     return (
       <div className="stage-c">
         <div className="stage-sub">
-          {isFnaf ? '🍕 Girando Ruleta Fazbear…' : isAu ? '🚀 Girando Ruleta Skeld…' : 'Girando ruleta IA…'} ({activeVibes[vibeIdx]})
+          {isFnaf ? '🍕 Girando Ruleta Fazbear…' : isAu ? '🚀 Girando Ruleta Skeld…' : '🎡 Girando la ruleta…'} ({activeVibes[vibeIdx]})
         </div>
         <div className="stage-big" style={{fontSize: '8vh', marginTop: '3vh'}}>
-          {isFnaf ? 'Asignando reto del turno' : isAu ? 'Asignando tarea espacial' : 'Creando reto inédito'}
+          {isFnaf ? 'Asignando reto del turno' : isAu ? 'Asignando tarea espacial' : 'Eligiendo jugador y reto'}
         </div>
-      </div>
-    );
-  }
-
-  if (phase === 'ERR') {
-    return (
-      <div className="stage-c cursor-pointer" onClick={() => handleKey('ok')}>
-        <div className="stage-big" style={{fontSize: '7vh'}}>
-          No se pudo generar el reto
-        </div>
-        <div className="stage-sub">{errMsg}</div>
-        <div className="stage-hint">OK: reintentar · Atrás: menú</div>
       </div>
     );
   }
@@ -234,11 +203,13 @@ export function RuletaIaStage({
           ? `🐻 Turno de guardia · ${activeVibes[vibeIdx]}`
           : isAu
             ? `🛰️ Tripulante asignado · ${activeVibes[vibeIdx]}`
-            : `Le toca a · ${activeVibes[vibeIdx]}`}
+            : `Le toca a · ${activeVibes[vibeIdx]}`}{' '}
+        · {DIFFICULTY_META[difficulty].emoji} {DIFFICULTY_META[difficulty].label}
+        {secLimit > 0 && ` · ⏱️ ${timeLeft}s`}
       </div>
       <div className="stage-big">{players[targetPlayer].name}</div>
       <div className="stage-sub" style={{opacity: 0.9}}>
-        {challengeTitle}
+        {timedOut ? '⏰ ¡Se acabó el tiempo del reto!' : challengeTitle}
       </div>
       <div
         className="stage-big"
@@ -246,42 +217,29 @@ export function RuletaIaStage({
       >
         {challengeText}
       </div>
+      {secLimit > 0 && (
+        <div className="stage-barw" style={{marginTop: '2.5vh', height: '1.6vh'}}>
+          <div
+            className="stage-barf"
+            style={{
+              width: `${(timeLeft / secLimit) * 100}%`,
+              background: timeLeft <= 3 ? '#ef4444' : '#ffffff',
+            }}
+          />
+        </div>
+      )}
       <div className="stage-hint">
-        ▲: cumplido (+2 pts) · OK: otro reto · ◀▶: ambiente · Atrás: menú
+        {timedOut
+          ? 'OK: girar otro reto · ◀▶: ambiente · Atrás: menú'
+          : `▲: cumplido (+${ptsReward} pts) · OK: otro reto · ◀▶: ambiente · Atrás: menú`}
       </div>
     </div>
   );
 }
 
 /* -------------------------------------------------------------------------- */
-/* 10. TRIVIA RELÁMPAGO IA                                                    */
+/* 10. TRIVIA RELÁMPAGO (CLÁSICO, FNAF Y CANON AMONG US)                       */
 /* -------------------------------------------------------------------------- */
-
-const TRIVIA_TOPICS = [
-  'Cultura General',
-  'Cine y Animación',
-  'Videojuegos Clásicos y Modernos',
-  'Ciencia y Espacio',
-  'Música y Deportes',
-  'Geografía y Naturaleza',
-  'Inventos e Historia',
-];
-const FNAF_TRIVIA_TOPICS = [
-  'FNAF 1 y Pizzería original',
-  'FNAF 2, Toys y Puppet',
-  'FNAF 3 y Fazbear’s Fright',
-  'FNAF 4 y Sister Location',
-  'Pizzeria Simulator, UCN y Security Breach',
-  'Curiosidades y mecánicas secretas de FNAF',
-];
-const AU_TRIVIA_TOPICS = [
-  'The Skeld: salas y cámaras',
-  'Mira HQ y Polus',
-  'The Airship y The Fungle',
-  'Roles: Ingeniero, Científico, Cambiaformas, Rastreador',
-  'Sabotajes, tareas visuales y reglas de juego',
-  'Historia de Innersloth y curiosidades de Among Us',
-];
 
 export function TriviaIaStage({
   players,
@@ -289,63 +247,58 @@ export function TriviaIaStage({
   registerKeyHandler,
   setBg,
   themeMode = 'classic',
+  difficulty = 'normal',
 }: StageGameProps) {
   const isFnaf = themeMode === 'fnaf';
   const isAu = themeMode === 'amongus';
   const np = players.length;
-  const [phase, setPhase] = useState<'LOAD' | 'PLAY' | 'REVEAL' | 'ERR'>('LOAD');
-  const [questions, setQuestions] = useState<TriviaQuestion[]>([]);
+  const count = difficulty === 'easy' ? 4 : difficulty === 'hard' ? 7 : 5;
+  const secLimit = difficulty === 'easy' ? 20 : difficulty === 'hard' ? 7 : 12;
+  const historyKey = `trivia_${themeMode}`;
+
+  const [questions, setQuestions] = useState<TriviaQuestion[]>(() =>
+    getTriviaBatch(themeMode, historyKey, count),
+  );
+  const [phase, setPhase] = useState<'PLAY' | 'REVEAL'>('PLAY');
   const [qi, setQi] = useState(0);
   const [sel, setSel] = useState(0);
+  const [timeLeft, setTimeLeft] = useState(secLimit);
   const [scores, setScores] = useState<number[]>(() => Array(np).fill(0));
   const [wasCorrect, setWasCorrect] = useState(false);
-  const [errMsg, setErrMsg] = useState('');
 
-  const loadQuestions = useCallback(async () => {
-    setPhase('LOAD');
-    const historyKey = `trivia_${themeMode}`;
-    const pool = isFnaf ? FNAF_TRIVIA_TOPICS : isAu ? AU_TRIVIA_TOPICS : TRIVIA_TOPICS;
-    const topic = pickFreshTopic(historyKey, pool);
-    try {
-      const res = await fetch(apiUrl('/api/ai/trivia'), {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          topic,
-          difficulty: 'Media-Alta',
-          recentQuestions: getRecentAiItems(historyKey),
-          theme: themeMode,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Error IA');
-      const rawList = Array.isArray(data.questions) ? (data.questions as TriviaQuestion[]) : [];
-      if (rawList.length === 0) throw new Error('Sin preguntas');
-      const list = filterFreshAiItems(historyKey, rawList, (q) => q.question, 50).slice(0, 5);
-      setQuestions(list);
-      setQi(0);
-      setSel(0);
-      setScores(Array(np).fill(0));
-      setPhase('PLAY');
-    } catch (err) {
-      setErrMsg(err instanceof Error ? err.message : 'Error de conexión');
-      setPhase('ERR');
-    }
-  }, [np, isFnaf, isAu, themeMode]);
-
-  useEffect(() => {
-    void loadQuestions();
-  }, [loadQuestions]);
+  const reloadQuestions = useCallback(() => {
+    setQuestions(getTriviaBatch(themeMode, historyKey, count));
+    setQi(0);
+    setSel(0);
+    setTimeLeft(secLimit);
+    setScores(Array(np).fill(0));
+    setPhase('PLAY');
+  }, [themeMode, historyKey, np, count, secLimit]);
 
   const pi = qi % np;
   const currentQ = questions[qi];
 
   useEffect(() => {
-    if (phase === 'ERR') setBg('#7f1d1d');
-    else if (phase === 'REVEAL') setBg(wasCorrect ? '#16a34a' : '#7f1d1d');
-    else if (phase === 'LOAD') setBg('#05070a');
+    if (phase === 'REVEAL') setBg(wasCorrect ? '#16a34a' : '#7f1d1d');
     else setBg(PLAYER_STAGE_COLORS[pi % PLAYER_STAGE_COLORS.length]);
   }, [phase, wasCorrect, pi, setBg]);
+
+  useEffect(() => {
+    if (phase !== 'PLAY') return;
+    setTimeLeft(secLimit);
+    const endAt = Date.now() + secLimit * 1000;
+    const iv = window.setInterval(() => {
+      const rem = Math.max(0, Math.ceil((endAt - Date.now()) / 1000));
+      setTimeLeft(rem);
+      if (Date.now() >= endAt) {
+        window.clearInterval(iv);
+        setWasCorrect(false);
+        tone(150, 0.35, 'sawtooth');
+        setPhase('REVEAL');
+      }
+    }, 150);
+    return () => window.clearInterval(iv);
+  }, [phase, qi, secLimit]);
 
   const confirmOpt = useCallback(
     (idx: number) => {
@@ -369,10 +322,6 @@ export function TriviaIaStage({
 
   const handleKey = useCallback(
     (k: RemoteKey) => {
-      if (phase === 'ERR' && k === 'ok') {
-        void loadQuestions();
-        return;
-      }
       if (phase === 'PLAY') {
         if (k === 'right') {
           setSel((s) => (s + 1) % 4);
@@ -394,46 +343,20 @@ export function TriviaIaStage({
         } else {
           const rank = Array.from({length: np}, (_, i) => i).sort((a, b) => scores[b] - scores[a]);
           onFinish(
-            isFnaf ? 'Trivia FNAF IA' : isAu ? 'Trivia Skeld IA' : 'Trivia IA',
+            isFnaf ? 'Trivia Fazbear' : isAu ? 'Trivia de Skeld' : 'Trivia Relámpago',
             rank,
             rank.map((p) => `${scores[p]} aciertos`),
-            () => void loadQuestions(),
+            reloadQuestions,
           );
         }
       }
     },
-    [phase, sel, qi, questions.length, np, scores, isFnaf, isAu, confirmOpt, loadQuestions, onFinish],
+    [phase, sel, qi, questions.length, np, scores, isFnaf, isAu, confirmOpt, reloadQuestions, onFinish],
   );
 
   useEffect(() => {
     registerKeyHandler(handleKey);
   }, [registerKeyHandler, handleKey]);
-
-  if (phase === 'LOAD') {
-    return (
-      <div className="stage-c">
-        <div className="stage-big" style={{fontSize: '8vh'}}>
-          {isFnaf
-            ? '🐻 Sintonizando Trivia Fazbear…'
-            : isAu
-              ? '🛸 Cargando Trivia de The Skeld…'
-              : 'Generando preguntas con IA…'}
-        </div>
-      </div>
-    );
-  }
-
-  if (phase === 'ERR') {
-    return (
-      <div className="stage-c cursor-pointer" onClick={() => handleKey('ok')}>
-        <div className="stage-big" style={{fontSize: '7vh'}}>
-          Error al cargar trivia
-        </div>
-        <div className="stage-sub">{errMsg}</div>
-        <div className="stage-hint">OK: reintentar · Atrás: menú</div>
-      </div>
-    );
-  }
 
   if (!currentQ) return null;
 
@@ -455,7 +378,8 @@ export function TriviaIaStage({
   return (
     <div className="stage-c">
       <div className="stage-sub">
-        {players[pi].name} · {qi + 1}/{questions.length}
+        {players[pi].name} · {qi + 1}/{questions.length} · {DIFFICULTY_META[difficulty].emoji}{' '}
+        {DIFFICULTY_META[difficulty].label} · ⏱️ {timeLeft}s
       </div>
       <div className="stage-big" style={{fontSize: 'clamp(1.5rem, 5.5vh, 3.2rem)'}}>
         {currentQ.question}
@@ -477,7 +401,7 @@ export function TriviaIaStage({
 }
 
 /* -------------------------------------------------------------------------- */
-/* 11. EL IMPOSTOR IA                                                         */
+/* 11. EL IMPOSTOR SECRETO                                                    */
 /* -------------------------------------------------------------------------- */
 
 export function ImpostorIaStage({
@@ -486,94 +410,107 @@ export function ImpostorIaStage({
   registerKeyHandler,
   setBg,
   themeMode = 'classic',
+  difficulty = 'normal',
 }: StageGameProps) {
   const isFnaf = themeMode === 'fnaf';
   const isAu = themeMode === 'amongus';
   const np = players.length;
-  const [phase, setPhase] = useState<'NEED3' | 'LOAD' | 'LOCK' | 'PEEK' | 'VOTE' | 'ERR'>(
-    np < 3 ? 'NEED3' : 'LOAD',
+  const voteSecs = difficulty === 'easy' ? 45 : difficulty === 'hard' ? 15 : 25;
+  const historyKey = `impostor_${themeMode}`;
+
+  const [phase, setPhase] = useState<'NEED3' | 'LOCK' | 'PEEK' | 'VOTE'>(
+    np < 3 ? 'NEED3' : 'LOCK',
   );
-  const [round, setRound] = useState<ImpostorRound | null>(null);
-  const [impIdx, setImpIdx] = useState(0);
+  const [round, setRound] = useState<ImpostorRound>(() => getImpostorRound(themeMode, historyKey));
+  const [impIdx, setImpIdx] = useState(() => Math.floor(Math.random() * Math.max(1, np)));
   const [peekIdx, setPeekIdx] = useState(0);
   const [voteSel, setVoteSel] = useState(0);
-  const [errMsg, setErrMsg] = useState('');
+  const [voteTimeLeft, setVoteTimeLeft] = useState(voteSecs);
 
-  const loadRound = useCallback(async () => {
+  const voteSelRef = useRef(0);
+  voteSelRef.current = voteSel;
+
+  const reloadRound = useCallback(() => {
     if (np < 3) {
       setPhase('NEED3');
       return;
     }
-    setPhase('LOAD');
-    const historyKey = `impostor_${themeMode}`;
-    const vibePool = isFnaf
-      ? [
-          'Animatrónicos de FNAF 1, 2, 3 y 4',
-          'Salas, cámaras y objetos de oficina FNAF',
-          'Sister Location, Pizzeria Simulator y Security Breach',
-        ]
-      : isAu
-        ? [
-            'Salas y mapas de Among Us (Skeld, Mira HQ, Polus, Airship, Fungle)',
-            'Tareas visuales, cables y sabotajes de Among Us',
-            'Roles y mecánicas de tripulantes e impostores',
-          ]
-        : [
-            'Lugares y viajes',
-            'Comida y cocina',
-            'Animales y naturaleza',
-            'Profesiones y objetos cotidianos',
-            'Deportes y pasatiempos',
-          ];
-    const vibe = pickFreshTopic(historyKey, vibePool);
-    try {
-      const res = await fetch(apiUrl('/api/ai/impostor'), {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          vibe,
-          recentWords: getRecentAiItems(historyKey),
-          theme: themeMode,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Error IA');
-      const loadedRound = data as ImpostorRound;
-      if (loadedRound?.secretWord) {
-        recordAiItems(historyKey, [loadedRound.secretWord], 45);
-      }
-      setRound(loadedRound);
-      setImpIdx(Math.floor(Math.random() * np));
-      setPeekIdx(0);
-      setVoteSel(0);
-      setPhase('LOCK');
-    } catch (err) {
-      setErrMsg(err instanceof Error ? err.message : 'Error de conexión');
-      setPhase('ERR');
-    }
-  }, [np, isFnaf, isAu, themeMode]);
-
-  useEffect(() => {
-    void loadRound();
-  }, [loadRound]);
+    setRound(getImpostorRound(themeMode, historyKey));
+    setImpIdx(Math.floor(Math.random() * np));
+    setPeekIdx(0);
+    setVoteSel(0);
+    setVoteTimeLeft(voteSecs);
+    setPhase('LOCK');
+  }, [np, themeMode, historyKey, voteSecs]);
 
   useEffect(() => {
     if (phase === 'LOCK' || phase === 'PEEK') {
       setBg(PLAYER_STAGE_COLORS[peekIdx % PLAYER_STAGE_COLORS.length]);
-    } else if (phase === 'ERR' || phase === 'NEED3') {
+    } else if (phase === 'NEED3') {
       setBg('#7f1d1d');
     } else {
       setBg('#05070a');
     }
   }, [phase, peekIdx, setBg]);
 
+  const finishVote = useCallback(
+    (chosenVote: number) => {
+      const caught = chosenVote === impIdx;
+      const rank = caught
+        ? [
+            ...Array.from({length: np}, (_, i) => i).filter((i) => i !== impIdx),
+            impIdx,
+          ]
+        : [
+            impIdx,
+            ...Array.from({length: np}, (_, i) => i).filter((i) => i !== impIdx),
+          ];
+      onFinish(
+        caught
+          ? isFnaf
+            ? `🎭 ¡Animatrónico descubierto! Era ${players[impIdx].name}`
+            : isAu
+              ? `🚀 ¡${players[impIdx].name} era El Impostor!`
+              : `¡Atrapado! Era ${players[impIdx].name}`
+          : isFnaf
+            ? `🦊 ¡Se coló en la oficina ${players[impIdx].name}!`
+            : isAu
+              ? `🛸 ¡Ganó El Impostor ${players[impIdx].name}!`
+              : `¡Escapó ${players[impIdx].name}!`,
+        rank,
+        rank.map((p) =>
+          p === impIdx
+            ? `${isFnaf ? 'INFILTRADO' : 'IMPOSTOR'} (${round.secretWord})`
+            : isFnaf
+              ? 'Guardia'
+              : isAu
+                ? 'Tripulante'
+                : 'Ciudadano',
+        ),
+        reloadRound,
+      );
+    },
+    [impIdx, np, players, round, isFnaf, isAu, reloadRound, onFinish],
+  );
+
+  useEffect(() => {
+    if (phase !== 'VOTE') return;
+    setVoteTimeLeft(voteSecs);
+    const endAt = Date.now() + voteSecs * 1000;
+    const iv = window.setInterval(() => {
+      const rem = Math.max(0, Math.ceil((endAt - Date.now()) / 1000));
+      setVoteTimeLeft(rem);
+      if (Date.now() >= endAt) {
+        window.clearInterval(iv);
+        finishVote(voteSelRef.current);
+      }
+    }, 150);
+    return () => window.clearInterval(iv);
+  }, [phase, voteSecs, finishVote]);
+
   const handleKey = useCallback(
     (k: RemoteKey) => {
       if (phase === 'NEED3') return;
-      if (phase === 'ERR' && k === 'ok') {
-        void loadRound();
-        return;
-      }
       if (phase === 'LOCK' && k === 'ok') {
         tone(520, 0.1);
         setPhase('PEEK');
@@ -593,44 +530,11 @@ export function ImpostorIaStage({
           setVoteSel((v) => (v + np - 1) % np);
           playControlClick();
         } else if (k === 'ok') {
-          const caught = voteSel === impIdx;
-          const rank = caught
-            ? [
-                ...Array.from({length: np}, (_, i) => i).filter((i) => i !== impIdx),
-                impIdx,
-              ]
-            : [
-                impIdx,
-                ...Array.from({length: np}, (_, i) => i).filter((i) => i !== impIdx),
-              ];
-          onFinish(
-            caught
-              ? isFnaf
-                ? `🎭 ¡Animatrónico descubierto! Era ${players[impIdx].name}`
-                : isAu
-                  ? `🚀 ¡${players[impIdx].name} era El Impostor!`
-                  : `¡Atrapado! Era ${players[impIdx].name}`
-              : isFnaf
-                ? `🦊 ¡Se coló en la oficina ${players[impIdx].name}!`
-                : isAu
-                  ? `🛸 ¡Ganó El Impostor ${players[impIdx].name}!`
-                  : `¡Escapó ${players[impIdx].name}!`,
-            rank,
-            rank.map((p) =>
-              p === impIdx
-                ? `${isFnaf ? 'INFILTRADO' : 'IMPOSTOR'} (${round?.secretWord ?? ''})`
-                : isFnaf
-                  ? 'Guardia'
-                  : isAu
-                    ? 'Tripulante'
-                    : 'Ciudadano',
-            ),
-            () => void loadRound(),
-          );
+          finishVote(voteSel);
         }
       }
     },
-    [phase, peekIdx, np, voteSel, impIdx, players, round, isFnaf, isAu, loadRound, onFinish],
+    [phase, peekIdx, np, voteSel, finishVote],
   );
 
   useEffect(() => {
@@ -649,32 +553,6 @@ export function ImpostorIaStage({
     );
   }
 
-  if (phase === 'LOAD') {
-    return (
-      <div className="stage-c">
-        <div className="stage-big" style={{fontSize: '8vh'}}>
-          {isFnaf
-            ? '🎭 Revisando cámaras de Fazbear…'
-            : isAu
-              ? '🛸 Asignando roles en The Skeld…'
-              : 'Eligiendo palabra secreta…'}
-        </div>
-      </div>
-    );
-  }
-
-  if (phase === 'ERR') {
-    return (
-      <div className="stage-c cursor-pointer" onClick={() => handleKey('ok')}>
-        <div className="stage-big" style={{fontSize: '7vh'}}>
-          Error al iniciar Impostor
-        </div>
-        <div className="stage-sub">{errMsg}</div>
-        <div className="stage-hint">OK: reintentar · Atrás: menú</div>
-      </div>
-    );
-  }
-
   if (phase === 'LOCK') {
     return (
       <div className="stage-c cursor-pointer" onClick={() => handleKey('ok')}>
@@ -683,7 +561,8 @@ export function ImpostorIaStage({
             ? 'Solo el guardia de turno'
             : isAu
               ? 'Solo el tripulante de turno'
-              : 'Que nadie más mire'}
+              : 'Que nadie más mire'}{' '}
+          · {DIFFICULTY_META[difficulty].emoji} {DIFFICULTY_META[difficulty].label}
         </div>
         <div className="stage-big">{players[peekIdx].name}</div>
         <div className="stage-hint">
@@ -697,7 +576,7 @@ export function ImpostorIaStage({
     );
   }
 
-  if (phase === 'PEEK' && round) {
+  if (phase === 'PEEK') {
     const isImp = peekIdx === impIdx;
     return (
       <div className="stage-c cursor-pointer" onClick={() => handleKey('ok')}>
@@ -708,8 +587,12 @@ export function ImpostorIaStage({
               : 'Eres el IMPOSTOR'
             : `${isFnaf ? 'Clave de oficina' : isAu ? 'Tarea de la nave' : 'Palabra secreta'} (${round.category})`}
         </div>
-        <div className="stage-big" style={{fontSize: '9vh'}}>
-          {isImp ? `Pista: ${round.impostorHint}` : round.secretWord}
+        <div className="stage-big" style={{fontSize: difficulty === 'hard' && isImp ? '6.5vh' : '9vh'}}>
+          {isImp
+            ? difficulty === 'hard'
+              ? `Categoría: ${round.category} (sin pista)`
+              : `Pista: ${round.impostorHint}`
+            : round.secretWord}
         </div>
         <div className="stage-hint">OK: ocultar y pasar</div>
       </div>
@@ -723,10 +606,11 @@ export function ImpostorIaStage({
           ? '🚨 Debatan y voten quién se coló en la oficina'
           : isAu
             ? '🚨 ¡Reunión de Emergencia! Voten quién será expulsado'
-            : 'Debatan y voten al sospechoso'}
+            : 'Debatan y voten al sospechoso'}{' '}
+        · ⏱️ {voteTimeLeft}s
       </div>
       <div className="stage-sub" style={{fontSize: '3vh', opacity: 0.85}}>
-        {round?.starterQuestion}
+        {round.starterQuestion}
       </div>
       <div className="stage-opt-grid">
         {players.map((p, i) => (
@@ -734,7 +618,7 @@ export function ImpostorIaStage({
             key={p.id}
             onClick={() => {
               setVoteSel(i);
-              handleKey('ok');
+              finishVote(i);
             }}
             className={`stage-opt ${voteSel === i ? 'sel' : ''}`}
           >
@@ -748,7 +632,7 @@ export function ImpostorIaStage({
 }
 
 /* -------------------------------------------------------------------------- */
-/* 12. DILEMA DEL SOFÁ IA                                                     */
+/* 12. ¿QUÉ PREFIERES? / DILEMA DEL SOFÁ                                      */
 /* -------------------------------------------------------------------------- */
 
 export function DilemaIaStage({
@@ -757,64 +641,37 @@ export function DilemaIaStage({
   registerKeyHandler,
   setBg,
   themeMode = 'classic',
+  difficulty = 'normal',
 }: StageGameProps) {
   const isFnaf = themeMode === 'fnaf';
   const isAu = themeMode === 'amongus';
   const np = players.length;
-  const [phase, setPhase] = useState<'LOAD' | 'VOTE' | 'REVEAL' | 'ERR'>('LOAD');
-  const [items, setItems] = useState<DilemmaItem[]>([]);
+  const count = difficulty === 'easy' ? 3 : difficulty === 'hard' ? 5 : 4;
+  const secLimit = difficulty === 'easy' ? 0 : difficulty === 'hard' ? 6 : 10;
+  const historyKey = `dilema_${themeMode}`;
+
+  const [items, setItems] = useState<DilemmaItem[]>(() =>
+    generateDilemmas(themeMode, historyKey, count),
+  );
+  const [phase, setPhase] = useState<'VOTE' | 'REVEAL'>('VOTE');
   const [idx, setIdx] = useState(0);
   const [voterIdx, setVoterIdx] = useState(0);
-  const [votes, setVotes] = useState<string[]>([]);
-  const [errMsg, setErrMsg] = useState('');
+  const [timeLeft, setTimeLeft] = useState(secLimit);
+  const [votes, setVotes] = useState<string[]>(() => Array(np).fill('A'));
 
-  const load = useCallback(async () => {
-    setPhase('LOAD');
-    const historyKey = `dilema_${themeMode}`;
-    try {
-      const res = await fetch(apiUrl('/api/ai/dilemma'), {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          vibe: isFnaf
-            ? 'Decisiones de guardia en Fazbear'
-            : isAu
-              ? 'Decisiones de tripulantes en The Skeld'
-              : pickFreshTopic(historyKey, [
-                  'Superpoderes cotidianos y fantasía',
-                  'Viajes, comida y aventuras',
-                  'Tecnología, escuela y familia',
-                  'Situaciones absurdas y graciosas',
-                ]),
-          recentDilemmas: getRecentAiItems(historyKey),
-          theme: themeMode,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Error IA');
-      const rawList = Array.isArray(data.dilemmas) ? (data.dilemmas as DilemmaItem[]) : [];
-      if (rawList.length === 0) throw new Error('Sin dilemas');
-      const list = filterFreshAiItems(historyKey, rawList, (d) => d.scenario, 40).slice(0, 4);
-      setItems(list);
-      setIdx(0);
-      setVoterIdx(0);
-      setVotes(Array(np).fill('A'));
-      setPhase('VOTE');
-    } catch (err) {
-      setErrMsg(err instanceof Error ? err.message : 'Error de conexión');
-      setPhase('ERR');
-    }
-  }, [np, isFnaf, isAu, themeMode]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const reloadDilemmas = useCallback(() => {
+    setItems(generateDilemmas(themeMode, historyKey, count));
+    setIdx(0);
+    setVoterIdx(0);
+    setTimeLeft(secLimit);
+    setVotes(Array(np).fill('A'));
+    setPhase('VOTE');
+  }, [themeMode, historyKey, np, count, secLimit]);
 
   const current = items[idx];
 
   useEffect(() => {
     if (phase === 'VOTE') setBg(PLAYER_STAGE_COLORS[voterIdx % PLAYER_STAGE_COLORS.length]);
-    else if (phase === 'ERR') setBg('#7f1d1d');
     else setBg('#05070a');
   }, [phase, voterIdx, setBg]);
 
@@ -834,10 +691,24 @@ export function DilemaIaStage({
     [votes, voterIdx, np],
   );
 
+  useEffect(() => {
+    if (phase !== 'VOTE' || secLimit <= 0) return;
+    setTimeLeft(secLimit);
+    const endAt = Date.now() + secLimit * 1000;
+    const iv = window.setInterval(() => {
+      const rem = Math.max(0, Math.ceil((endAt - Date.now()) / 1000));
+      setTimeLeft(rem);
+      if (Date.now() >= endAt) {
+        window.clearInterval(iv);
+        pickChoice(Math.random() < 0.5 ? 'A' : 'B');
+      }
+    }, 150);
+    return () => window.clearInterval(iv);
+  }, [phase, idx, voterIdx, secLimit, pickChoice]);
+
   const handleKey = useCallback(
     (k: RemoteKey) => {
-      if (phase === 'ERR' && k === 'ok') void load();
-      else if (phase === 'VOTE') {
+      if (phase === 'VOTE') {
         if (k === 'left') pickChoice('A');
         else if (k === 'right') pickChoice('B');
       } else if (phase === 'REVEAL' && k === 'ok') {
@@ -848,47 +719,23 @@ export function DilemaIaStage({
         } else {
           const rank = Array.from({length: np}, (_, i) => i);
           onFinish(
-            isFnaf ? 'Dilema del Guardia' : isAu ? 'Dilema Espacial' : 'Dilema del sofá',
+            isFnaf ? 'Dilema del Guardia' : isAu ? 'Dilema Espacial' : '¿Qué Prefieres?',
             rank,
             rank.map(() =>
               isFnaf ? 'Turno sobrevivido' : isAu ? 'Misión debatida' : 'Debate completado',
             ),
-            () => void load(),
+            reloadDilemmas,
           );
         }
       }
     },
-    [phase, idx, items.length, np, isFnaf, isAu, load, pickChoice, onFinish],
+    [phase, idx, items.length, np, isFnaf, isAu, reloadDilemmas, pickChoice, onFinish],
   );
 
   useEffect(() => {
     registerKeyHandler(handleKey);
   }, [registerKeyHandler, handleKey]);
 
-  if (phase === 'LOAD') {
-    return (
-      <div className="stage-c">
-        <div className="stage-big" style={{fontSize: '8vh'}}>
-          {isFnaf
-            ? '⚖️ Consultando manual del guardia…'
-            : isAu
-              ? '⚖️ Consultando bitácora de The Skeld…'
-              : 'Creando dilemas con IA…'}
-        </div>
-      </div>
-    );
-  }
-  if (phase === 'ERR') {
-    return (
-      <div className="stage-c cursor-pointer" onClick={() => handleKey('ok')}>
-        <div className="stage-big" style={{fontSize: '7vh'}}>
-          Error al cargar dilemas
-        </div>
-        <div className="stage-sub">{errMsg}</div>
-        <div className="stage-hint">OK: reintentar</div>
-      </div>
-    );
-  }
   if (!current) return null;
 
   if (phase === 'REVEAL') {
@@ -915,7 +762,11 @@ export function DilemaIaStage({
 
   return (
     <div className="stage-c">
-      <div className="stage-sub">Vota {players[voterIdx].name}</div>
+      <div className="stage-sub">
+        Vota {players[voterIdx].name} · {idx + 1}/{items.length} · {DIFFICULTY_META[difficulty].emoji}{' '}
+        {DIFFICULTY_META[difficulty].label}
+        {secLimit > 0 && ` · ⏱️ ${timeLeft}s`}
+      </div>
       <div className="stage-big" style={{fontSize: '7vh'}}>
         {current.scenario}
       </div>
@@ -933,7 +784,7 @@ export function DilemaIaStage({
 }
 
 /* -------------------------------------------------------------------------- */
-/* 13. CINE EN EMOJIS IA                                                      */
+/* 13. CINE / MISIONES EN EMOJIS                                              */
 /* -------------------------------------------------------------------------- */
 
 export function EmojiIaStage({
@@ -942,84 +793,58 @@ export function EmojiIaStage({
   registerKeyHandler,
   setBg,
   themeMode = 'classic',
+  difficulty = 'normal',
 }: StageGameProps) {
   const isFnaf = themeMode === 'fnaf';
   const isAu = themeMode === 'amongus';
   const np = players.length;
-  const [phase, setPhase] = useState<'LOAD' | 'PLAY' | 'REVEAL' | 'ERR'>('LOAD');
-  const [puzzles, setPuzzles] = useState<EmojiPuzzle[]>([]);
+  const count = difficulty === 'easy' ? 4 : difficulty === 'hard' ? 7 : 5;
+  const secLimit = difficulty === 'easy' ? 20 : difficulty === 'hard' ? 6 : 11;
+  const historyKey = `emoji_${themeMode}`;
+
+  const [puzzles, setPuzzles] = useState<EmojiPuzzle[]>(() =>
+    getEmojiBatch(themeMode, historyKey, count),
+  );
+  const [phase, setPhase] = useState<'PLAY' | 'REVEAL'>('PLAY');
   const [qi, setQi] = useState(0);
   const [sel, setSel] = useState(0);
+  const [timeLeft, setTimeLeft] = useState(secLimit);
   const [scores, setScores] = useState<number[]>(() => Array(np).fill(0));
   const [wasOk, setWasOk] = useState(false);
-  const [errMsg, setErrMsg] = useState('');
 
-  const load = useCallback(async () => {
-    setPhase('LOAD');
-    const historyKey = `emoji_${themeMode}`;
-    const catPool = isFnaf
-      ? [
-          'Personajes de FNAF 1, 2, 3 y 4',
-          'Sister Location, Security Breach y FNAF 6',
-          'Salas, objetos y mecánicas de FNAF',
-        ]
-      : isAu
-        ? [
-            'Tareas y sabotajes de Among Us',
-            'Salas y mapas (Skeld, Polus, Mira HQ, Airship, Fungle)',
-            'Roles y momentos icónicos de Among Us',
-          ]
-        : [
-            'Películas animadas y familiares',
-            'Series, videojuegos y superhéroes',
-            'Películas de aventuras y ciencia ficción',
-            'Cuentos, canciones y libros famosos',
-          ];
-    const category = pickFreshTopic(historyKey, catPool);
-    try {
-      const res = await fetch(apiUrl('/api/ai/emoji-quiz'), {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          category,
-          recentTitles: getRecentAiItems(historyKey),
-          theme: themeMode,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Error IA');
-      const rawList = Array.isArray(data.puzzles) ? (data.puzzles as EmojiPuzzle[]) : [];
-      if (rawList.length === 0) throw new Error('Sin acertijos');
-      const list = filterFreshAiItems(
-        historyKey,
-        rawList,
-        (p) => p.options?.[p.correctIndex] ?? p.emojis,
-        45,
-      ).slice(0, 5);
-      setPuzzles(list);
-      setQi(0);
-      setSel(0);
-      setScores(Array(np).fill(0));
-      setPhase('PLAY');
-    } catch (err) {
-      setErrMsg(err instanceof Error ? err.message : 'Error');
-      setPhase('ERR');
-    }
-  }, [np, isFnaf, isAu, themeMode]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const reloadPuzzles = useCallback(() => {
+    setPuzzles(getEmojiBatch(themeMode, historyKey, count));
+    setQi(0);
+    setSel(0);
+    setTimeLeft(secLimit);
+    setScores(Array(np).fill(0));
+    setPhase('PLAY');
+  }, [themeMode, historyKey, np, count, secLimit]);
 
   const pi = qi % np;
   const current = puzzles[qi];
 
   useEffect(() => {
-    if (phase === 'ERR') setBg('#7f1d1d');
-    else if (phase === 'REVEAL') setBg(wasOk ? '#16a34a' : '#7f1d1d');
-    else if (phase === 'LOAD') setBg('#05070a');
+    if (phase === 'REVEAL') setBg(wasOk ? '#16a34a' : '#7f1d1d');
     else setBg(PLAYER_STAGE_COLORS[pi % PLAYER_STAGE_COLORS.length]);
   }, [phase, wasOk, pi, setBg]);
+
+  useEffect(() => {
+    if (phase !== 'PLAY') return;
+    setTimeLeft(secLimit);
+    const endAt = Date.now() + secLimit * 1000;
+    const iv = window.setInterval(() => {
+      const rem = Math.max(0, Math.ceil((endAt - Date.now()) / 1000));
+      setTimeLeft(rem);
+      if (Date.now() >= endAt) {
+        window.clearInterval(iv);
+        setWasOk(false);
+        tone(150, 0.35, 'sawtooth');
+        setPhase('REVEAL');
+      }
+    }, 150);
+    return () => window.clearInterval(iv);
+  }, [phase, qi, secLimit]);
 
   const confirm = useCallback(
     (idx: number) => {
@@ -1043,8 +868,7 @@ export function EmojiIaStage({
 
   const handleKey = useCallback(
     (k: RemoteKey) => {
-      if (phase === 'ERR' && k === 'ok') void load();
-      else if (phase === 'PLAY') {
+      if (phase === 'PLAY') {
         if (k === 'right') {
           setSel((s) => (s + 1) % 4);
           playControlClick();
@@ -1065,45 +889,21 @@ export function EmojiIaStage({
         } else {
           const rank = Array.from({length: np}, (_, i) => i).sort((a, b) => scores[b] - scores[a]);
           onFinish(
-            isFnaf ? 'FNAF en Emojis' : isAu ? 'Among Us en Emojis' : 'Cine en emojis',
+            isFnaf ? 'FNAF en Emojis' : isAu ? 'Skeld en Emojis' : 'Cine en Emojis',
             rank,
             rank.map((p) => `${scores[p]} aciertos`),
-            () => void load(),
+            reloadPuzzles,
           );
         }
       }
     },
-    [phase, sel, qi, puzzles.length, np, scores, isFnaf, isAu, load, confirm, onFinish],
+    [phase, sel, qi, puzzles.length, np, scores, isFnaf, isAu, reloadPuzzles, confirm, onFinish],
   );
 
   useEffect(() => {
     registerKeyHandler(handleKey);
   }, [registerKeyHandler, handleKey]);
 
-  if (phase === 'LOAD') {
-    return (
-      <div className="stage-c">
-        <div className="stage-big" style={{fontSize: '8vh'}}>
-          {isFnaf
-            ? '🍕 Descifrando códigos de Fazbear…'
-            : isAu
-              ? '🛸 Descifrando códigos de The Skeld…'
-              : 'Combinando emojis con IA…'}
-        </div>
-      </div>
-    );
-  }
-  if (phase === 'ERR') {
-    return (
-      <div className="stage-c cursor-pointer" onClick={() => handleKey('ok')}>
-        <div className="stage-big" style={{fontSize: '7vh'}}>
-          Error al cargar acertijos
-        </div>
-        <div className="stage-sub">{errMsg}</div>
-        <div className="stage-hint">OK: reintentar</div>
-      </div>
-    );
-  }
   if (!current) return null;
 
   if (phase === 'REVEAL') {
@@ -1119,8 +919,14 @@ export function EmojiIaStage({
   return (
     <div className="stage-c">
       <div className="stage-sub">
-        {players[pi].name} · {qi + 1}/{puzzles.length}
+        {players[pi].name} · {qi + 1}/{puzzles.length} · {DIFFICULTY_META[difficulty].emoji}{' '}
+        {DIFFICULTY_META[difficulty].label} · ⏱️ {timeLeft}s
       </div>
+      {difficulty === 'easy' && current.hint && (
+        <div className="stage-sub" style={{fontSize: '2.4vh', opacity: 0.85, marginTop: '0.5vh'}}>
+          Pista: {current.hint}
+        </div>
+      )}
       <div className="text-[12vh] leading-tight my-3">{current.emojis}</div>
       <div className="stage-opt-grid">
         {current.options.map((o, i) => (
@@ -1139,7 +945,7 @@ export function EmojiIaStage({
 }
 
 /* -------------------------------------------------------------------------- */
-/* 14. TRES PISTAS IA                                                         */
+/* 14. TRES PISTAS                                                            */
 /* -------------------------------------------------------------------------- */
 
 export function PistasIaStage({
@@ -1148,80 +954,59 @@ export function PistasIaStage({
   registerKeyHandler,
   setBg,
   themeMode = 'classic',
+  difficulty = 'normal',
 }: StageGameProps) {
   const isFnaf = themeMode === 'fnaf';
   const isAu = themeMode === 'amongus';
   const np = players.length;
-  const [phase, setPhase] = useState<'LOAD' | 'PLAY' | 'REVEAL' | 'ERR'>('LOAD');
-  const [cards, setCards] = useState<ClueCard[]>([]);
+  const count = difficulty === 'easy' ? 4 : difficulty === 'hard' ? 6 : 5;
+  const maxClues = difficulty === 'hard' ? 2 : 3;
+  const secLimit = difficulty === 'easy' ? 20 : difficulty === 'hard' ? 7 : 12;
+  const historyKey = `pistas_${themeMode}`;
+
+  const [cards, setCards] = useState<ClueCard[]>(() => getClueBatch(themeMode, historyKey, count));
+  const [phase, setPhase] = useState<'PLAY' | 'REVEAL'>('PLAY');
   const [qi, setQi] = useState(0);
   const [cluesCount, setCluesCount] = useState(1);
   const [sel, setSel] = useState(0);
+  const [timeLeft, setTimeLeft] = useState(secLimit);
   const [scores, setScores] = useState<number[]>(() => Array(np).fill(0));
   const [wasOk, setWasOk] = useState(false);
-  const [errMsg, setErrMsg] = useState('');
 
-  const load = useCallback(async () => {
-    setPhase('LOAD');
-    const historyKey = `pistas_${themeMode}`;
-    const vibePool = isFnaf
-      ? [
-          'Animatrónicos clásicos y Toy de FNAF',
-          'Salas, cámaras y objetos de oficina FNAF',
-          'FNAF 3, 4, Sister Location y Security Breach',
-        ]
-      : isAu
-        ? [
-            'Mapas y salas de Among Us',
-            'Tareas, botones y sabotajes de Among Us',
-            'Roles especiales y mecánicas de Among Us',
-          ]
-        : [
-            'Animales, naturaleza y planetas',
-            'Inventos, países y monumentos',
-            'Personajes históricos, deportes y música',
-            'Comida, ciencia y objetos cotidianos',
-          ];
-    try {
-      const res = await fetch(apiUrl('/api/ai/clues'), {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          vibe: pickFreshTopic(historyKey, vibePool),
-          recentAnswers: getRecentAiItems(historyKey),
-          theme: themeMode,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Error IA');
-      const rawList = Array.isArray(data.cards) ? (data.cards as ClueCard[]) : [];
-      if (rawList.length === 0) throw new Error('Sin tarjetas');
-      const list = filterFreshAiItems(historyKey, rawList, (c) => c.answer, 45).slice(0, 5);
-      setCards(list);
-      setQi(0);
-      setCluesCount(1);
-      setSel(0);
-      setScores(Array(np).fill(0));
-      setPhase('PLAY');
-    } catch (err) {
-      setErrMsg(err instanceof Error ? err.message : 'Error');
-      setPhase('ERR');
-    }
-  }, [np, isFnaf, isAu, themeMode]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const reloadCards = useCallback(() => {
+    setCards(getClueBatch(themeMode, historyKey, count));
+    setQi(0);
+    setCluesCount(1);
+    setSel(0);
+    setTimeLeft(secLimit);
+    setScores(Array(np).fill(0));
+    setPhase('PLAY');
+  }, [themeMode, historyKey, np, count, secLimit]);
 
   const pi = qi % np;
   const current = cards[qi];
 
   useEffect(() => {
-    if (phase === 'ERR') setBg('#7f1d1d');
-    else if (phase === 'REVEAL') setBg(wasOk ? '#16a34a' : '#7f1d1d');
-    else if (phase === 'LOAD') setBg('#05070a');
+    if (phase === 'REVEAL') setBg(wasOk ? '#16a34a' : '#7f1d1d');
     else setBg(PLAYER_STAGE_COLORS[pi % PLAYER_STAGE_COLORS.length]);
   }, [phase, wasOk, pi, setBg]);
+
+  useEffect(() => {
+    if (phase !== 'PLAY') return;
+    setTimeLeft(secLimit);
+    const endAt = Date.now() + secLimit * 1000;
+    const iv = window.setInterval(() => {
+      const rem = Math.max(0, Math.ceil((endAt - Date.now()) / 1000));
+      setTimeLeft(rem);
+      if (Date.now() >= endAt) {
+        window.clearInterval(iv);
+        setWasOk(false);
+        tone(150, 0.35, 'sawtooth');
+        setPhase('REVEAL');
+      }
+    }, 150);
+    return () => window.clearInterval(iv);
+  }, [phase, qi, secLimit]);
 
   const confirm = useCallback(
     (idx: number) => {
@@ -1246,8 +1031,7 @@ export function PistasIaStage({
 
   const handleKey = useCallback(
     (k: RemoteKey) => {
-      if (phase === 'ERR' && k === 'ok') void load();
-      else if (phase === 'PLAY') {
+      if (phase === 'PLAY') {
         if (k === 'right') {
           setSel((s) => (s + 1) % 4);
           playControlClick();
@@ -1258,7 +1042,7 @@ export function PistasIaStage({
           setSel((s) => (s + 2) % 4);
           playControlClick();
         } else if (k === 'up') {
-          if (cluesCount < 3) {
+          if (cluesCount < maxClues) {
             setCluesCount((c) => c + 1);
             tone(520, 0.08);
           } else {
@@ -1276,45 +1060,21 @@ export function PistasIaStage({
         } else {
           const rank = Array.from({length: np}, (_, i) => i).sort((a, b) => scores[b] - scores[a]);
           onFinish(
-            isFnaf ? '3 Pistas Fazbear' : isAu ? '3 Pistas Skeld' : 'Tres pistas IA',
+            isFnaf ? '3 Pistas Fazbear' : isAu ? '3 Pistas de Nave' : 'Tres Pistas',
             rank,
             rank.map((p) => `${scores[p]} pts`),
-            () => void load(),
+            reloadCards,
           );
         }
       }
     },
-    [phase, cluesCount, sel, qi, cards.length, np, scores, isFnaf, isAu, load, confirm, onFinish],
+    [phase, cluesCount, maxClues, sel, qi, cards.length, np, scores, isFnaf, isAu, reloadCards, confirm, onFinish],
   );
 
   useEffect(() => {
     registerKeyHandler(handleKey);
   }, [registerKeyHandler, handleKey]);
 
-  if (phase === 'LOAD') {
-    return (
-      <div className="stage-c">
-        <div className="stage-big" style={{fontSize: '8vh'}}>
-          {isFnaf
-            ? '🔦 Recopilando pistas en cámaras…'
-            : isAu
-              ? '🛰️ Escaneando registros de The Skeld…'
-              : 'Escribiendo pistas con IA…'}
-        </div>
-      </div>
-    );
-  }
-  if (phase === 'ERR') {
-    return (
-      <div className="stage-c cursor-pointer" onClick={() => handleKey('ok')}>
-        <div className="stage-big" style={{fontSize: '7vh'}}>
-          Error al cargar pistas
-        </div>
-        <div className="stage-sub">{errMsg}</div>
-        <div className="stage-hint">OK: reintentar</div>
-      </div>
-    );
-  }
   if (!current) return null;
 
   if (phase === 'REVEAL') {
@@ -1330,7 +1090,8 @@ export function PistasIaStage({
   return (
     <div className="stage-c">
       <div className="stage-sub">
-        {players[pi].name} · {current.category}
+        {players[pi].name} · {current.category} · {qi + 1}/{cards.length} ·{' '}
+        {DIFFICULTY_META[difficulty].emoji} {DIFFICULTY_META[difficulty].label} · ⏱️ {timeLeft}s
       </div>
       <div className="space-y-2 mt-4 max-w-4xl mx-auto">
         {current.clues.slice(0, cluesCount).map((c, idx) => (
@@ -1351,14 +1112,14 @@ export function PistasIaStage({
         ))}
       </div>
       <div className="stage-hint">
-        ▲: otra pista ({cluesCount}/3) · ◀▶▼: elegir · OK: confirmar
+        ▲: otra pista ({cluesCount}/{maxClues}) · ◀▶▼: elegir · OK: confirmar
       </div>
     </div>
   );
 }
 
 /* -------------------------------------------------------------------------- */
-/* 15. ¿VERDAD O MITO? IA                                                     */
+/* 15. ¿VERDAD O MITO?                                                        */
 /* -------------------------------------------------------------------------- */
 
 export function VerdadMitoIaStage({
@@ -1367,78 +1128,56 @@ export function VerdadMitoIaStage({
   registerKeyHandler,
   setBg,
   themeMode = 'classic',
+  difficulty = 'normal',
 }: StageGameProps) {
   const isFnaf = themeMode === 'fnaf';
   const isAu = themeMode === 'amongus';
   const np = players.length;
-  const [phase, setPhase] = useState<'LOAD' | 'PLAY' | 'REVEAL' | 'ERR'>('LOAD');
-  const [items, setItems] = useState<TrueFalseStatement[]>([]);
+  const count = difficulty === 'easy' ? 4 : difficulty === 'hard' ? 7 : 5;
+  const secLimit = difficulty === 'easy' ? 18 : difficulty === 'hard' ? 5 : 10;
+  const historyKey = `verdad_${themeMode}`;
+
+  const [items, setItems] = useState<TrueFalseStatement[]>(() =>
+    getTrueFalseBatch(themeMode, historyKey, count),
+  );
+  const [phase, setPhase] = useState<'PLAY' | 'REVEAL'>('PLAY');
   const [qi, setQi] = useState(0);
+  const [timeLeft, setTimeLeft] = useState(secLimit);
   const [scores, setScores] = useState<number[]>(() => Array(np).fill(0));
   const [wasOk, setWasOk] = useState(false);
-  const [errMsg, setErrMsg] = useState('');
 
-  const load = useCallback(async () => {
-    setPhase('LOAD');
-    const historyKey = `verdad_${themeMode}`;
-    const topicPool = isFnaf
-      ? [
-          'Mecánicas y secretos de FNAF 1 y 2',
-          'Historia, desarrollo y mitos de Scott Cawthon y FNAF 3-4',
-          'Sister Location, Pizzeria Simulator y Security Breach',
-        ]
-      : isAu
-        ? [
-            'Mecánicas de tareas, fantasmas y sabotajes en Among Us',
-            'Historia de Innersloth, mapas y actualizaciones de Among Us',
-            'Mitos famosos y roles de Among Us',
-          ]
-        : [
-            'Animales y naturaleza sorprendente',
-            'Espacio, ciencia y cuerpo humano',
-            'Historia, inventos y gastronomía mundial',
-            'Cine, videojuegos y récords curiosos',
-          ];
-    try {
-      const res = await fetch(apiUrl('/api/ai/true-false'), {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          topic: pickFreshTopic(historyKey, topicPool),
-          recentStatements: getRecentAiItems(historyKey),
-          theme: themeMode,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Error IA');
-      const rawList = Array.isArray(data.statements)
-        ? (data.statements as TrueFalseStatement[])
-        : [];
-      if (rawList.length === 0) throw new Error('Sin afirmaciones');
-      const list = filterFreshAiItems(historyKey, rawList, (s) => s.statement, 50).slice(0, 6);
-      setItems(list);
-      setQi(0);
-      setScores(Array(np).fill(0));
-      setPhase('PLAY');
-    } catch (err) {
-      setErrMsg(err instanceof Error ? err.message : 'Error');
-      setPhase('ERR');
-    }
-  }, [np, isFnaf, isAu, themeMode]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const reloadItems = useCallback(() => {
+    setItems(getTrueFalseBatch(themeMode, historyKey, count));
+    setQi(0);
+    setTimeLeft(secLimit);
+    setScores(Array(np).fill(0));
+    setPhase('PLAY');
+  }, [themeMode, historyKey, np, count, secLimit]);
 
   const pi = qi % np;
   const current = items[qi];
 
   useEffect(() => {
-    if (phase === 'ERR') setBg('#7f1d1d');
-    else if (phase === 'REVEAL') setBg(wasOk ? '#16a34a' : '#7f1d1d');
-    else if (phase === 'LOAD') setBg('#05070a');
+    if (phase === 'REVEAL') setBg(wasOk ? '#16a34a' : '#7f1d1d');
     else setBg(PLAYER_STAGE_COLORS[pi % PLAYER_STAGE_COLORS.length]);
   }, [phase, wasOk, pi, setBg]);
+
+  useEffect(() => {
+    if (phase !== 'PLAY') return;
+    setTimeLeft(secLimit);
+    const endAt = Date.now() + secLimit * 1000;
+    const iv = window.setInterval(() => {
+      const rem = Math.max(0, Math.ceil((endAt - Date.now()) / 1000));
+      setTimeLeft(rem);
+      if (Date.now() >= endAt) {
+        window.clearInterval(iv);
+        setWasOk(false);
+        tone(150, 0.35, 'sawtooth');
+        setPhase('REVEAL');
+      }
+    }, 150);
+    return () => window.clearInterval(iv);
+  }, [phase, qi, secLimit]);
 
   const answer = useCallback(
     (choice: boolean) => {
@@ -1462,8 +1201,7 @@ export function VerdadMitoIaStage({
 
   const handleKey = useCallback(
     (k: RemoteKey) => {
-      if (phase === 'ERR' && k === 'ok') void load();
-      else if (phase === 'PLAY') {
+      if (phase === 'PLAY') {
         if (k === 'left') answer(true);
         else if (k === 'right') answer(false);
       } else if (phase === 'REVEAL' && k === 'ok') {
@@ -1473,45 +1211,21 @@ export function VerdadMitoIaStage({
         } else {
           const rank = Array.from({length: np}, (_, i) => i).sort((a, b) => scores[b] - scores[a]);
           onFinish(
-            isFnaf ? 'Mito o Realidad FNAF' : isAu ? 'Mito o Realidad Skeld' : 'Verdad o mito',
+            isFnaf ? 'Mito o Realidad' : isAu ? 'Dato o Sabotaje' : 'Verdad o Mito',
             rank,
             rank.map((p) => `${scores[p]} aciertos`),
-            () => void load(),
+            reloadItems,
           );
         }
       }
     },
-    [phase, qi, items.length, np, scores, isFnaf, isAu, load, answer, onFinish],
+    [phase, qi, items.length, np, scores, isFnaf, isAu, reloadItems, answer, onFinish],
   );
 
   useEffect(() => {
     registerKeyHandler(handleKey);
   }, [registerKeyHandler, handleKey]);
 
-  if (phase === 'LOAD') {
-    return (
-      <div className="stage-c">
-        <div className="stage-big" style={{fontSize: '8vh'}}>
-          {isFnaf
-            ? '📋 Revisando archivos de Fazbear…'
-            : isAu
-              ? '📋 Revisando registros de The Skeld…'
-              : 'Buscando datos curiosos…'}
-        </div>
-      </div>
-    );
-  }
-  if (phase === 'ERR') {
-    return (
-      <div className="stage-c cursor-pointer" onClick={() => handleKey('ok')}>
-        <div className="stage-big" style={{fontSize: '7vh'}}>
-          Error al cargar datos
-        </div>
-        <div className="stage-sub">{errMsg}</div>
-        <div className="stage-hint">OK: reintentar</div>
-      </div>
-    );
-  }
   if (!current) return null;
 
   if (phase === 'REVEAL') {
@@ -1531,7 +1245,8 @@ export function VerdadMitoIaStage({
   return (
     <div className="stage-c">
       <div className="stage-sub">
-        {players[pi].name} · {qi + 1}/{items.length}
+        {players[pi].name} · {qi + 1}/{items.length} · {DIFFICULTY_META[difficulty].emoji}{' '}
+        {DIFFICULTY_META[difficulty].label} · ⏱️ {timeLeft}s
       </div>
       <div className="stage-big" style={{fontSize: 'clamp(1.6rem, 5.8vh, 3.4rem)'}}>
         “{current.statement}”
@@ -1550,7 +1265,7 @@ export function VerdadMitoIaStage({
 }
 
 /* -------------------------------------------------------------------------- */
-/* 16. HISTORIA EN CADENA IA                                                  */
+/* 16. HISTORIA LOCA EN CADENA                                                */
 /* -------------------------------------------------------------------------- */
 
 export function HistoriaIaStage({
@@ -1559,121 +1274,84 @@ export function HistoriaIaStage({
   registerKeyHandler,
   setBg,
   themeMode = 'classic',
+  difficulty = 'normal',
 }: StageGameProps) {
   const isFnaf = themeMode === 'fnaf';
   const isAu = themeMode === 'amongus';
   const np = players.length;
-  const [phase, setPhase] = useState<'LOAD' | 'CHOICE' | 'FINALE' | 'ERR'>('LOAD');
-  const [chapter, setChapter] = useState(1);
-  const [storyText, setStoryText] = useState('');
-  const [choices, setChoices] = useState<string[]>([]);
-  const [sel, setSel] = useState(0);
-  const [ending, setEnding] = useState({title: '', text: '', rating: 8});
-  const [errMsg, setErrMsg] = useState('');
+  const secLimit = difficulty === 'easy' ? 0 : difficulty === 'hard' ? 7 : 14;
 
-  const startStory = useCallback(async () => {
-    setPhase('LOAD');
+  const sessionRef = useRef<StorySessionEngine | null>(null);
+  if (!sessionRef.current) {
+    sessionRef.current = createStorySession(themeMode);
+  }
+
+  const [phase, setPhase] = useState<'CHOICE' | 'FINALE'>('CHOICE');
+  const [chapter, setChapter] = useState(1);
+  const [storyText, setStoryText] = useState(() => sessionRef.current!.start.paragraph);
+  const [choices, setChoices] = useState<string[]>(() => sessionRef.current!.start.choices);
+  const [sel, setSel] = useState(0);
+  const [timeLeft, setTimeLeft] = useState(secLimit);
+  const [ending, setEnding] = useState({title: '', text: '', rating: 9});
+
+  const selRef = useRef(0);
+  selRef.current = sel;
+
+  const restartStory = useCallback(() => {
+    const nextEngine = createStorySession(themeMode);
+    sessionRef.current = nextEngine;
     setChapter(1);
     setSel(0);
-    const historyKey = `historia_${themeMode}`;
-    const genre = isFnaf
-      ? 'Turno nocturno en Freddy Fazbear Pizza'
-      : isAu
-        ? 'Aventura espacial en la nave The Skeld'
-        : pickFreshTopic(historyKey, [
-            'Comedia absurda en unas vacaciones',
-            'Misterio gracioso en un museo',
-            'Aventura en una isla llena de inventos',
-            'Día caótico en un restaurante mágico',
-          ]);
-    try {
-      const res = await fetch(apiUrl('/api/ai/story'), {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          step: 'START',
-          genre,
-          playerNames: players.map((p) => p.name),
-          theme: themeMode,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Error IA');
-      setStoryText(String(data.paragraph || ''));
-      setChoices(Array.isArray(data.choices) ? data.choices : []);
-      setPhase('CHOICE');
-    } catch (err) {
-      setErrMsg(err instanceof Error ? err.message : 'Error');
-      setPhase('ERR');
-    }
-  }, [players, isFnaf, isAu, themeMode]);
-
-  useEffect(() => {
-    void startStory();
-  }, [startStory]);
+    setTimeLeft(secLimit);
+    setStoryText(nextEngine.start.paragraph);
+    setChoices(nextEngine.start.choices);
+    setPhase('CHOICE');
+  }, [themeMode, secLimit]);
 
   const pi = (chapter - 1) % np;
 
   useEffect(() => {
-    if (phase === 'ERR') setBg('#7f1d1d');
-    else if (phase === 'LOAD') setBg('#05070a');
-    else if (phase === 'FINALE') setBg('#16a34a');
+    if (phase === 'FINALE') setBg('#16a34a');
     else setBg(PLAYER_STAGE_COLORS[pi % PLAYER_STAGE_COLORS.length]);
   }, [phase, pi, setBg]);
 
   const pickTwist = useCallback(
-    async (twist: string) => {
+    (choiceIdx: number) => {
       tone(520, 0.1);
-      setPhase('LOAD');
-      const isLast = chapter >= 3;
-      try {
-        const res = await fetch(apiUrl('/api/ai/story'), {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({
-            step: isLast ? 'FINISH' : 'NEXT',
-            genre: isFnaf
-              ? 'Turno nocturno en Freddy Fazbear Pizza'
-              : isAu
-                ? 'Aventura espacial en la nave The Skeld'
-                : 'Comedia absurda',
-            historySoFar: storyText,
-            chosenTwist: twist,
-            theme: themeMode,
-          }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Error IA');
-        if (isLast) {
-          tone(784, 0.35);
-          setEnding({
-            title: String(
-              data.episodeTitle ||
-                (isFnaf ? '¡Llegaron las 6:00 AM!' : isAu ? '¡Victoria Tripulante!' : 'Final'),
-            ),
-            text: String(data.ending || ''),
-            rating: Number(data.ratingOutOf10 || 8),
-          });
-          setPhase('FINALE');
-        } else {
-          setStoryText(String(data.paragraph || ''));
-          setChoices(Array.isArray(data.choices) ? data.choices : []);
-          setChapter((c) => c + 1);
-          setSel(0);
-          setPhase('CHOICE');
-        }
-      } catch (err) {
-        setErrMsg(err instanceof Error ? err.message : 'Error');
-        setPhase('ERR');
+      const engine = sessionRef.current!;
+      if (chapter >= 3) {
+        tone(784, 0.35);
+        setEnding(engine.getEnding(choiceIdx));
+        setPhase('FINALE');
+      } else {
+        const nextNode = engine.getNextNode(chapter, choiceIdx);
+        setStoryText(nextNode.paragraph);
+        setChoices(nextNode.choices);
+        setChapter((c) => c + 1);
+        setSel(0);
       }
     },
-    [chapter, storyText, isFnaf, isAu, themeMode],
+    [chapter],
   );
+
+  useEffect(() => {
+    if (phase !== 'CHOICE' || secLimit <= 0) return;
+    setTimeLeft(secLimit);
+    const endAt = Date.now() + secLimit * 1000;
+    const iv = window.setInterval(() => {
+      const rem = Math.max(0, Math.ceil((endAt - Date.now()) / 1000));
+      setTimeLeft(rem);
+      if (Date.now() >= endAt) {
+        window.clearInterval(iv);
+        pickTwist(selRef.current);
+      }
+    }, 150);
+    return () => window.clearInterval(iv);
+  }, [phase, chapter, secLimit, pickTwist]);
 
   const handleKey = useCallback(
     (k: RemoteKey) => {
-      if (phase === 'ERR' && k === 'ok') void startStory();
-      else if (phase === 'CHOICE') {
+      if (phase === 'CHOICE') {
         if (k === 'down' || k === 'right') {
           setSel((s) => (s + 1) % Math.max(1, choices.length));
           playControlClick();
@@ -1681,7 +1359,7 @@ export function HistoriaIaStage({
           setSel((s) => (s + Math.max(1, choices.length) - 1) % Math.max(1, choices.length));
           playControlClick();
         } else if (k === 'ok' && choices[sel]) {
-          void pickTwist(choices[sel]);
+          pickTwist(sel);
         }
       } else if (phase === 'FINALE' && k === 'ok') {
         const rank = Array.from({length: np}, (_, i) => i);
@@ -1689,41 +1367,17 @@ export function HistoriaIaStage({
           ending.title,
           rank,
           rank.map(() => `Nota ${ending.rating}/10`),
-          () => void startStory(),
+          restartStory,
         );
       }
     },
-    [phase, choices, sel, np, ending, startStory, pickTwist, onFinish],
+    [phase, choices, sel, np, ending, restartStory, pickTwist, onFinish],
   );
 
   useEffect(() => {
     registerKeyHandler(handleKey);
   }, [registerKeyHandler, handleKey]);
 
-  if (phase === 'LOAD') {
-    return (
-      <div className="stage-c">
-        <div className="stage-big" style={{fontSize: '8vh'}}>
-          {isFnaf
-            ? '🕰️ Avanzando el turno en Fazbear…'
-            : isAu
-              ? '🚀 Avanzando rumbo en The Skeld…'
-              : 'Escribiendo escena con IA…'}
-        </div>
-      </div>
-    );
-  }
-  if (phase === 'ERR') {
-    return (
-      <div className="stage-c cursor-pointer" onClick={() => handleKey('ok')}>
-        <div className="stage-big" style={{fontSize: '7vh'}}>
-          Error en la historia
-        </div>
-        <div className="stage-sub">{errMsg}</div>
-        <div className="stage-hint">OK: reintentar</div>
-      </div>
-    );
-  }
   if (phase === 'FINALE') {
     return (
       <div className="stage-c cursor-pointer" onClick={() => handleKey('ok')}>
@@ -1752,7 +1406,9 @@ export function HistoriaIaStage({
           ? `📹 Decide ${players[pi].name} · ${chapter === 1 ? '12:00 AM' : chapter === 2 ? '2:00 AM' : '4:00 AM'}`
           : isAu
             ? `🛰️ Decide ${players[pi].name} · Sector ${chapter}/3`
-            : `Decide ${players[pi].name} · Capítulo ${chapter}/3`}
+            : `Decide ${players[pi].name} · Capítulo ${chapter}/3`}{' '}
+        · {DIFFICULTY_META[difficulty].emoji} {DIFFICULTY_META[difficulty].label}
+        {secLimit > 0 && ` · ⏱️ ${timeLeft}s`}
       </div>
       <div
         className="stage-sub"
@@ -1764,7 +1420,7 @@ export function HistoriaIaStage({
         {choices.map((c, i) => (
           <div
             key={i}
-            onClick={() => void pickTwist(c)}
+            onClick={() => pickTwist(i)}
             className={`stage-opt ${sel === i ? 'sel' : ''}`}
             style={{padding: '1.8vh 2vw', fontSize: '2.8vh'}}
           >
@@ -1778,7 +1434,7 @@ export function HistoriaIaStage({
 }
 
 /* -------------------------------------------------------------------------- */
-/* 17. ¿QUIÉN ES MÁS PROBABLE QUE...? IA (FAMILIAR)                           */
+/* 17. ¿QUIÉN ES MÁS PROBABLE QUE...?                                         */
 /* -------------------------------------------------------------------------- */
 
 export function MasProbableIaStage({
@@ -1787,74 +1443,50 @@ export function MasProbableIaStage({
   registerKeyHandler,
   setBg,
   themeMode = 'classic',
+  difficulty = 'normal',
 }: StageGameProps) {
   const isFnaf = themeMode === 'fnaf';
   const isAu = themeMode === 'amongus';
   const np = players.length;
-  const [phase, setPhase] = useState<'LOAD' | 'VOTE' | 'REVEAL' | 'ERR'>('LOAD');
-  const [prompts, setPrompts] = useState<MostLikelyPrompt[]>([]);
+  const count = difficulty === 'easy' ? 3 : difficulty === 'hard' ? 6 : 4;
+  const secLimit = difficulty === 'easy' ? 0 : difficulty === 'hard' ? 6 : 10;
+  const historyKey = `probable_${themeMode}`;
+
+  const [prompts, setPrompts] = useState<MostLikelyPrompt[]>(() =>
+    generateMostLikelyPrompts(themeMode, historyKey, count),
+  );
+  const [phase, setPhase] = useState<'VOTE' | 'REVEAL'>('VOTE');
   const [qi, setQi] = useState(0);
   const [voterIdx, setVoterIdx] = useState(0);
   const [sel, setSel] = useState(0);
-  const [votes, setVotes] = useState<number[]>([]);
+  const [timeLeft, setTimeLeft] = useState(secLimit);
+  const [votes, setVotes] = useState<number[]>(() => Array(np).fill(0));
   const [soloYesCount, setSoloYesCount] = useState(0);
   const [soloLastYes, setSoloLastYes] = useState(false);
   const [scores, setScores] = useState<number[]>(() => Array(np).fill(0));
   const [crownedCounts, setCrownedCounts] = useState<number[]>(() => Array(np).fill(0));
-  const [errMsg, setErrMsg] = useState('');
 
-  const load = useCallback(async () => {
-    setPhase('LOAD');
-    const historyKey = `probable_${themeMode}`;
-    try {
-      const res = await fetch(apiUrl('/api/ai/most-likely'), {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          vibe: isFnaf
-            ? 'Guardias nocturnos en Freddy Fazbear Pizza'
-            : isAu
-              ? 'Tripulantes e impostores en The Skeld'
-              : pickFreshTopic(historyKey, [
-                  'Costumbres en casa y familia',
-                  'Viajes, comida y distracciones',
-                  'Situaciones cómicas y manías diarias',
-                ]),
-          recentPrompts: getRecentAiItems(historyKey),
-          theme: themeMode,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Error IA');
-      const rawList = Array.isArray(data.prompts) ? (data.prompts as MostLikelyPrompt[]) : [];
-      if (rawList.length === 0) throw new Error('Sin preguntas');
-      const list = filterFreshAiItems(historyKey, rawList, (p) => p.question, 45).slice(0, 5);
-      setPrompts(list);
-      setQi(0);
-      setVoterIdx(0);
-      setSel(0);
-      setVotes(Array(np).fill(0));
-      setSoloYesCount(0);
-      setScores(Array(np).fill(0));
-      setCrownedCounts(Array(np).fill(0));
-      setPhase('VOTE');
-    } catch (err) {
-      setErrMsg(err instanceof Error ? err.message : 'Error de conexión');
-      setPhase('ERR');
-    }
-  }, [np, isFnaf, isAu, themeMode]);
+  const selRef = useRef(0);
+  selRef.current = sel;
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const reloadPrompts = useCallback(() => {
+    setPrompts(generateMostLikelyPrompts(themeMode, historyKey, count));
+    setQi(0);
+    setVoterIdx(0);
+    setSel(0);
+    setTimeLeft(secLimit);
+    setVotes(Array(np).fill(0));
+    setSoloYesCount(0);
+    setScores(Array(np).fill(0));
+    setCrownedCounts(Array(np).fill(0));
+    setPhase('VOTE');
+  }, [themeMode, historyKey, np, count, secLimit]);
 
   const current = prompts[qi];
 
   useEffect(() => {
     if (phase === 'VOTE') setBg(PLAYER_STAGE_COLORS[voterIdx % PLAYER_STAGE_COLORS.length]);
-    else if (phase === 'ERR') setBg('#7f1d1d');
     else if (phase === 'REVEAL') setBg('#1d4ed8');
-    else setBg('#05070a');
   }, [phase, voterIdx, setBg]);
 
   const confirmVote = useCallback(
@@ -1910,12 +1542,23 @@ export function MasProbableIaStage({
     [np, votes, voterIdx],
   );
 
+  useEffect(() => {
+    if (phase !== 'VOTE' || secLimit <= 0) return;
+    setTimeLeft(secLimit);
+    const endAt = Date.now() + secLimit * 1000;
+    const iv = window.setInterval(() => {
+      const rem = Math.max(0, Math.ceil((endAt - Date.now()) / 1000));
+      setTimeLeft(rem);
+      if (Date.now() >= endAt) {
+        window.clearInterval(iv);
+        confirmVote(np === 1 ? (Math.random() < 0.5 ? 0 : 1) : selRef.current);
+      }
+    }, 150);
+    return () => window.clearInterval(iv);
+  }, [phase, qi, voterIdx, secLimit, np, confirmVote]);
+
   const handleKey = useCallback(
     (k: RemoteKey) => {
-      if (phase === 'ERR' && k === 'ok') {
-        void load();
-        return;
-      }
       if (phase === 'VOTE') {
         if (np === 1) {
           if (k === 'left') confirmVote(0);
@@ -1947,13 +1590,13 @@ export function MasProbableIaStage({
         } else if (np === 1) {
           onFinish(
             isFnaf
-              ? '¿Quién sobrevive en Fazbear?'
+              ? '¿Qué Guardia de Fazbear?'
               : isAu
-                ? '¿Quién es más sospechoso?'
-                : '¿Quién es más probable?',
+                ? '¿Quién es más Sus?'
+                : '¿Quién es más...?',
             [0],
             [`${soloYesCount}/${prompts.length} veces tú`],
-            () => void load(),
+            reloadPrompts,
           );
         } else {
           const rank = Array.from({length: np}, (_, i) => i).sort(
@@ -1961,13 +1604,13 @@ export function MasProbableIaStage({
           );
           onFinish(
             isFnaf
-              ? '¿Quién sobrevive en Fazbear?'
+              ? '¿Qué Guardia de Fazbear?'
               : isAu
-                ? '¿Quién es más sospechoso?'
-                : '¿Quién es más probable?',
+                ? '¿Quién es más Sus?'
+                : '¿Quién es más...?',
             rank,
             rank.map((p) => `${scores[p]} con mayoría · ${crownedCounts[p]} títulos`),
-            () => void load(),
+            reloadPrompts,
           );
         }
       }
@@ -1983,7 +1626,7 @@ export function MasProbableIaStage({
       crownedCounts,
       isFnaf,
       isAu,
-      load,
+      reloadPrompts,
       confirmVote,
       onFinish,
     ],
@@ -1992,32 +1635,6 @@ export function MasProbableIaStage({
   useEffect(() => {
     registerKeyHandler(handleKey);
   }, [registerKeyHandler, handleKey]);
-
-  if (phase === 'LOAD') {
-    return (
-      <div className="stage-c">
-        <div className="stage-big" style={{fontSize: '8vh'}}>
-          {isFnaf
-            ? '👀 Evaluando al equipo de guardia…'
-            : isAu
-              ? '🛸 Analizando coartadas de la tripulación…'
-              : 'Pensando situaciones en familia…'}
-        </div>
-      </div>
-    );
-  }
-
-  if (phase === 'ERR') {
-    return (
-      <div className="stage-c cursor-pointer" onClick={() => handleKey('ok')}>
-        <div className="stage-big" style={{fontSize: '7vh'}}>
-          Error al cargar preguntas
-        </div>
-        <div className="stage-sub">{errMsg}</div>
-        <div className="stage-hint">OK: reintentar · Atrás: menú</div>
-      </div>
-    );
-  }
 
   if (!current) return null;
 
@@ -2070,7 +1687,9 @@ export function MasProbableIaStage({
     return (
       <div className="stage-c">
         <div className="stage-sub">
-          {players[0].name} · {qi + 1}/{prompts.length}
+          {players[0].name} · {qi + 1}/{prompts.length} · {DIFFICULTY_META[difficulty].emoji}{' '}
+          {DIFFICULTY_META[difficulty].label}
+          {secLimit > 0 && ` · ⏱️ ${timeLeft}s`}
         </div>
         <div className="stage-big" style={{fontSize: 'clamp(1.6rem, 5.8vh, 3.4rem)'}}>
           {current.question}
@@ -2091,7 +1710,9 @@ export function MasProbableIaStage({
   return (
     <div className="stage-c">
       <div className="stage-sub">
-        Vota {players[voterIdx].name} · {qi + 1}/{prompts.length}
+        Vota {players[voterIdx].name} · {qi + 1}/{prompts.length} · {DIFFICULTY_META[difficulty].emoji}{' '}
+        {DIFFICULTY_META[difficulty].label}
+        {secLimit > 0 && ` · ⏱️ ${timeLeft}s`}
       </div>
       <div className="stage-big" style={{fontSize: 'clamp(1.5rem, 5.4vh, 3.1rem)'}}>
         {current.question}
@@ -2113,7 +1734,7 @@ export function MasProbableIaStage({
 }
 
 /* -------------------------------------------------------------------------- */
-/* 18. YO NUNCA FAMILIAR IA                                                   */
+/* 18. YO NUNCA FAMILIAR                                                      */
 /* -------------------------------------------------------------------------- */
 
 export function YoNuncaIaStage({
@@ -2122,71 +1743,42 @@ export function YoNuncaIaStage({
   registerKeyHandler,
   setBg,
   themeMode = 'classic',
+  difficulty = 'normal',
 }: StageGameProps) {
   const isFnaf = themeMode === 'fnaf';
   const isAu = themeMode === 'amongus';
   const np = players.length;
-  const [phase, setPhase] = useState<'LOAD' | 'CONFESS' | 'REVEAL' | 'ERR'>('LOAD');
-  const [items, setItems] = useState<NeverHaveIStatement[]>([]);
+  const count = difficulty === 'easy' ? 3 : difficulty === 'hard' ? 7 : 5;
+  const secLimit = difficulty === 'easy' ? 0 : difficulty === 'hard' ? 5 : 10;
+  const historyKey = `yonunca_${themeMode}`;
+
+  const [items, setItems] = useState<NeverHaveIStatement[]>(() =>
+    generateNeverHaveI(themeMode, historyKey, count),
+  );
+  const [phase, setPhase] = useState<'CONFESS' | 'REVEAL'>('CONFESS');
   const [qi, setQi] = useState(0);
   const [turnIdx, setTurnIdx] = useState(0);
+  const [timeLeft, setTimeLeft] = useState(secLimit);
   const [didItRound, setDidItRound] = useState<boolean[]>(() => Array(np).fill(false));
   const [innocentScores, setInnocentScores] = useState<number[]>(() => Array(np).fill(0));
   const [doneCounts, setDoneCounts] = useState<number[]>(() => Array(np).fill(0));
-  const [errMsg, setErrMsg] = useState('');
 
-  const load = useCallback(async () => {
-    setPhase('LOAD');
-    const historyKey = `yonunca_${themeMode}`;
-    try {
-      const res = await fetch(apiUrl('/api/ai/never-have-i'), {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          vibe: isFnaf
-            ? 'Anécdotas y sustos jugando FNAF'
-            : isAu
-              ? 'Anécdotas graciosas jugando Among Us'
-              : pickFreshTopic(historyKey, [
-                  'Travesuras en casa y colegio',
-                  'Comida, dulces y cocina',
-                  'Viajes, tecnología y despistes',
-                ]),
-          recentStatements: getRecentAiItems(historyKey),
-          theme: themeMode,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Error IA');
-      const rawList = Array.isArray(data.statements)
-        ? (data.statements as NeverHaveIStatement[])
-        : [];
-      if (rawList.length === 0) throw new Error('Sin tarjetas');
-      const list = filterFreshAiItems(historyKey, rawList, (s) => s.statement, 45).slice(0, 6);
-      setItems(list);
-      setQi(0);
-      setTurnIdx(0);
-      setDidItRound(Array(np).fill(false));
-      setInnocentScores(Array(np).fill(0));
-      setDoneCounts(Array(np).fill(0));
-      setPhase('CONFESS');
-    } catch (err) {
-      setErrMsg(err instanceof Error ? err.message : 'Error de conexión');
-      setPhase('ERR');
-    }
-  }, [np, isFnaf, isAu, themeMode]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const reloadStatements = useCallback(() => {
+    setItems(generateNeverHaveI(themeMode, historyKey, count));
+    setQi(0);
+    setTurnIdx(0);
+    setTimeLeft(secLimit);
+    setDidItRound(Array(np).fill(false));
+    setInnocentScores(Array(np).fill(0));
+    setDoneCounts(Array(np).fill(0));
+    setPhase('CONFESS');
+  }, [themeMode, historyKey, np, count, secLimit]);
 
   const current = items[qi];
 
   useEffect(() => {
     if (phase === 'CONFESS') setBg(PLAYER_STAGE_COLORS[turnIdx % PLAYER_STAGE_COLORS.length]);
-    else if (phase === 'ERR') setBg('#7f1d1d');
-    else if (phase === 'REVEAL') setBg('#0f766e');
-    else setBg('#05070a');
+    else setBg('#0f766e');
   }, [phase, turnIdx, setBg]);
 
   const answer = useCallback(
@@ -2220,12 +1812,23 @@ export function YoNuncaIaStage({
     [didItRound, turnIdx, np],
   );
 
+  useEffect(() => {
+    if (phase !== 'CONFESS' || secLimit <= 0) return;
+    setTimeLeft(secLimit);
+    const endAt = Date.now() + secLimit * 1000;
+    const iv = window.setInterval(() => {
+      const rem = Math.max(0, Math.ceil((endAt - Date.now()) / 1000));
+      setTimeLeft(rem);
+      if (Date.now() >= endAt) {
+        window.clearInterval(iv);
+        answer(true);
+      }
+    }, 150);
+    return () => window.clearInterval(iv);
+  }, [phase, qi, turnIdx, secLimit, answer]);
+
   const handleKey = useCallback(
     (k: RemoteKey) => {
-      if (phase === 'ERR' && k === 'ok') {
-        void load();
-        return;
-      }
       if (phase === 'CONFESS') {
         if (k === 'left') answer(true);
         else if (k === 'right') answer(false);
@@ -2240,46 +1843,20 @@ export function YoNuncaIaStage({
             (a, b) => innocentScores[b] - innocentScores[a],
           );
           onFinish(
-            isFnaf ? 'Yo nunca nocturno' : isAu ? 'Yo nunca tripulante' : 'Yo nunca (Familiar)',
+            isFnaf ? 'Yo Nunca Nocturno' : isAu ? 'Yo Nunca en Nave' : 'Yo Nunca',
             rank,
             rank.map((p) => `${innocentScores[p]} inocentes · ${doneCounts[p]} sí`),
-            () => void load(),
+            reloadStatements,
           );
         }
       }
     },
-    [phase, qi, items.length, np, innocentScores, doneCounts, isFnaf, isAu, answer, load, onFinish],
+    [phase, qi, items.length, np, innocentScores, doneCounts, isFnaf, isAu, answer, reloadStatements, onFinish],
   );
 
   useEffect(() => {
     registerKeyHandler(handleKey);
   }, [registerKeyHandler, handleKey]);
-
-  if (phase === 'LOAD') {
-    return (
-      <div className="stage-c">
-        <div className="stage-big" style={{fontSize: '8vh'}}>
-          {isFnaf
-            ? '🕯️ Preparando confesiones del turno…'
-            : isAu
-              ? '🛸 Preparando confesiones en Cafetería…'
-              : 'Preparando confesiones familiares…'}
-        </div>
-      </div>
-    );
-  }
-
-  if (phase === 'ERR') {
-    return (
-      <div className="stage-c cursor-pointer" onClick={() => handleKey('ok')}>
-        <div className="stage-big" style={{fontSize: '7vh'}}>
-          Error al cargar tarjetas
-        </div>
-        <div className="stage-sub">{errMsg}</div>
-        <div className="stage-hint">OK: reintentar · Atrás: menú</div>
-      </div>
-    );
-  }
 
   if (!current) return null;
 
@@ -2308,7 +1885,9 @@ export function YoNuncaIaStage({
   return (
     <div className="stage-c">
       <div className="stage-sub">
-        Responde {players[turnIdx].name} · {current.category} · {qi + 1}/{items.length}
+        Responde {players[turnIdx].name} · {current.category} · {qi + 1}/{items.length} ·{' '}
+        {DIFFICULTY_META[difficulty].emoji} {DIFFICULTY_META[difficulty].label}
+        {secLimit > 0 && ` · ⏱️ ${timeLeft}s`}
       </div>
       <div className="stage-big" style={{fontSize: 'clamp(1.6rem, 5.8vh, 3.4rem)'}}>
         “{current.statement}”
