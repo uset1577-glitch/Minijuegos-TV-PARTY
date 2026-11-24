@@ -56,8 +56,9 @@ jobs:
           rm -f android/app/src/main/java/com/mandoparty/tv/MainActivity.kt
           cp android-tv/ApkUpdaterPlugin.java android/app/src/main/java/com/mandoparty/tv/ApkUpdaterPlugin.java
           cp android-tv/MainActivity.java android/app/src/main/java/com/mandoparty/tv/MainActivity.java
-          sed -i "s/versionCode [0-9]\+/versionCode ${{ steps.ver.outputs.version_code }}/" android/app/build.gradle
-          sed -i "s/versionName \"[^\"]*\"/versionName \"${{ steps.ver.outputs.version_name }}\"/" android/app/build.gradle
+          sed -i -E "s/(versionCode[[:space:]]*=?[[:space:]]*)[0-9]+/\1${{ steps.ver.outputs.version_code }}/" android/app/build.gradle
+          sed -i -E "s/(versionName[[:space:]]*=?[[:space:]]*)\"[^\"]*\"/\1\"${{ steps.ver.outputs.version_name }}\"/" android/app/build.gradle
+          grep -E "versionCode|versionName" android/app/build.gradle || true
           npx cap sync android
 
       - name: Build Android TV APK
@@ -70,18 +71,31 @@ jobs:
           mkdir -p release-out
           if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
             echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > android/app/release-key.jks
-            cd android && ./gradlew assembleRelease \
-              -Pandroid.injected.signing.store.file="$(pwd)/app/release-key.jks" \
-              -Pandroid.injected.signing.store.password="$ANDROID_KEYSTORE_PASS" \
-              -Pandroid.injected.signing.key.alias="$ANDROID_KEY_ALIAS" \
-              -Pandroid.injected.signing.key.password="$ANDROID_KEY_PASS"
-            cd ..
-            cp android/app/build/outputs/apk/release/app-release.apk release-out/CgamesTVPARTY.apk
+            STORE_PASS="$ANDROID_KEYSTORE_PASS"
+            KEY_ALIAS="$ANDROID_KEY_ALIAS"
+            KEY_PASS="$ANDROID_KEY_PASS"
           else
-            cd android && ./gradlew assembleDebug
-            cd ..
-            cp android/app/build/outputs/apk/debug/app-debug.apk release-out/CgamesTVPARTY.apk
+            rm -f android/app/release-key.jks
+            keytool -importkeystore \
+              -srckeystore android-tv/tv-debug.p12 \
+              -srcstoretype PKCS12 \
+              -srcstorepass android \
+              -destkeystore android/app/release-key.jks \
+              -deststoretype JKS \
+              -deststorepass android \
+              -noprompt
+            STORE_PASS="android"
+            KEY_ALIAS="androiddebugkey"
+            KEY_PASS="android"
           fi
+
+          cd android && ./gradlew assembleRelease \
+            -Pandroid.injected.signing.store.file="$(pwd)/app/release-key.jks" \
+            -Pandroid.injected.signing.store.password="$STORE_PASS" \
+            -Pandroid.injected.signing.key.alias="$KEY_ALIAS" \
+            -Pandroid.injected.signing.key.password="$KEY_PASS"
+          cd ..
+          cp android/app/build/outputs/apk/release/app-release.apk release-out/CgamesTVPARTY.apk
 
           cat <<EOF > release-out/version.json
           {
